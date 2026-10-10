@@ -111,6 +111,15 @@ export const StockCard: React.FC<StockCardProps> = ({
                   <span className="text-[11px] text-slate-400 px-1.5 py-0.5 rounded bg-slate-800/70 border border-slate-700/60 font-mono-numbers">
                     {stock.market === 'TASE' ? 'ת״א TASE' : 'Wall St'}
                   </span>
+                  {stock.dataSource === 'yahoo' && (
+                    <span 
+                      title={stock.lastSyncedAt ? `מחיר עדכני מ-Yahoo Finance (${new Date(stock.lastSyncedAt).toLocaleTimeString('he-IL')})` : 'מחיר עדכני מ-Yahoo Finance'}
+                      className="text-[10px] bg-purple-950/70 border border-purple-500/40 text-purple-300 px-1.5 py-0.5 rounded flex items-center gap-1 font-mono-numbers"
+                    >
+                      <span className="w-1.5 h-1.5 rounded-full bg-purple-400 animate-pulse" />
+                      <span>Yahoo Live</span>
+                    </span>
+                  )}
                 </div>
                 <div className="text-sm font-medium text-slate-300 truncate max-w-[180px] sm:max-w-[220px]">
                   {stock.nameHe}

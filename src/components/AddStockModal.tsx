@@ -3,6 +3,7 @@ import { X, Search, Plus, Target, Check, AlertCircle, ArrowUpRight, ArrowDownRig
 import { Market, AlertCondition, MonitoredStock } from '../types';
 import { STOCK_CATALOG } from '../data/stockCatalog';
 import { formatPrice } from '../utils/formatters';
+import { fetchSingleYahooQuote, YahooQuoteData } from '../services/yahooFinance';
 
 interface AddStockModalProps {
   isOpen: boolean;
@@ -27,6 +28,10 @@ export const AddStockModal: React.FC<AddStockModalProps> = ({
   const [customNameHe, setCustomNameHe] = useState('');
   const [customPrice, setCustomPrice] = useState<number>(100);
 
+  // Live Yahoo quote state for selected/custom stock
+  const [liveYahooQuote, setLiveYahooQuote] = useState<YahooQuoteData | null>(null);
+  const [isLoadingLiveQuote, setIsLoadingLiveQuote] = useState(false);
+
   // Alert settings
   const [condition, setCondition] = useState<AlertCondition>('ABOVE');
   const [targetPrice, setTargetPrice] = useState<number>(4300);
@@ -46,22 +51,56 @@ export const AddStockModal: React.FC<AddStockModalProps> = ({
     return matchesMarket && matchesSearch;
   });
 
-  const handleSelectCatalogItem = (symbol: string) => {
+  const handleSelectCatalogItem = async (symbol: string) => {
     setSelectedStockSymbol(symbol);
     setIsCustomMode(false);
     const item = STOCK_CATALOG.find((s) => s.symbol === symbol);
-    if (item) {
-      // Set sensible target price based on current price (+3% default for ABOVE)
+    if (!item) return;
+
+    let basePrice = item.currentPrice;
+
+    // If it's a US stock, fetch real-time price from Yahoo Finance
+    if (item.market === 'US') {
+      setIsLoadingLiveQuote(true);
+      const yahooData = await fetchSingleYahooQuote(symbol);
+      setIsLoadingLiveQuote(false);
+      if (yahooData && yahooData.price > 0) {
+        setLiveYahooQuote(yahooData);
+        basePrice = yahooData.price;
+      } else {
+        setLiveYahooQuote(null);
+      }
+    } else {
+      setLiveYahooQuote(null);
+    }
+
+    const multiplier = condition === 'ABOVE' ? 1.03 : 0.97;
+    const initialTarget = item.market === 'TASE'
+      ? Math.round(basePrice * multiplier)
+      : Number((basePrice * multiplier).toFixed(2));
+    setTargetPrice(initialTarget);
+  };
+
+  const handleFetchCustomLiveQuote = async () => {
+    if (!customSymbol.trim()) return;
+    setIsLoadingLiveQuote(true);
+    const yahooData = await fetchSingleYahooQuote(customSymbol.trim());
+    setIsLoadingLiveQuote(false);
+    if (yahooData && yahooData.price > 0) {
+      setLiveYahooQuote(yahooData);
+      setCustomPrice(yahooData.price);
       const multiplier = condition === 'ABOVE' ? 1.03 : 0.97;
-      const initialTarget = item.market === 'TASE'
-        ? Math.round(item.currentPrice * multiplier)
-        : Number((item.currentPrice * multiplier).toFixed(2));
-      setTargetPrice(initialTarget);
+      setTargetPrice(Number((yahooData.price * multiplier).toFixed(2)));
     }
   };
 
   const currentItem = STOCK_CATALOG.find((s) => s.symbol === selectedStockSymbol);
-  const effectiveCurrentPrice = isCustomMode ? customPrice : currentItem?.currentPrice || 100;
+  const effectiveCurrentPrice = isCustomMode
+    ? customPrice
+    : liveYahooQuote
+    ? liveYahooQuote.price
+    : currentItem?.currentPrice || 100;
+
   const effectiveCurrency = isCustomMode
     ? selectedMarket === 'TASE' ? 'ILS' : 'USD'
     : currentItem?.currency || 'ILS';
@@ -90,6 +129,11 @@ export const AddStockModal: React.FC<AddStockModalProps> = ({
 
     if (isCustomMode) {
       if (!customSymbol.trim()) return;
+      const finalPrice = liveYahooQuote?.price ?? customPrice;
+      const finalPrev = liveYahooQuote?.previousClose ?? finalPrice;
+      const finalChange = liveYahooQuote?.change ?? 0;
+      const finalChangePct = liveYahooQuote?.changePercent ?? 0;
+
       newStock = {
         id: uniqueId,
         symbol: customSymbol.trim().toUpperCase(),
@@ -97,21 +141,37 @@ export const AddStockModal: React.FC<AddStockModalProps> = ({
         nameEn: customSymbol.trim().toUpperCase(),
         market: selectedMarket,
         currency: selectedMarket === 'TASE' ? 'ILS' : 'USD',
-        currentPrice: customPrice,
-        previousClose: customPrice,
-        change: 0,
-        changePercent: 0,
-        dayHigh: customPrice * 1.02,
-        dayLow: customPrice * 0.98,
-        history: [customPrice * 0.99, customPrice, customPrice],
+        currentPrice: finalPrice,
+        previousClose: finalPrev,
+        change: finalChange,
+        changePercent: finalChangePct,
+        dayHigh: liveYahooQuote?.dayHigh ?? finalPrice * 1.02,
+        dayLow: liveYahooQuote?.dayLow ?? finalPrice * 0.98,
+        history: liveYahooQuote?.history ?? [finalPrev, finalPrice],
         targetPrice: Number(targetPrice),
         condition,
         isEnabled: true,
         isTriggered: false,
+        dataSource: liveYahooQuote ? 'yahoo' : 'simulated',
+        lastSyncedAt: liveYahooQuote ? new Date().toISOString() : undefined,
         userNotes: notes.trim(),
         createdAt: new Date().toISOString(),
       };
     } else if (currentItem) {
+      const finalPrice = liveYahooQuote ? liveYahooQuote.price : currentItem.currentPrice;
+      const finalPrev = liveYahooQuote
+        ? liveYahooQuote.previousClose
+        : currentItem.currentPrice - currentItem.change;
+      const finalChange = liveYahooQuote ? liveYahooQuote.change : currentItem.change;
+      const finalChangePct = liveYahooQuote ? liveYahooQuote.changePercent : currentItem.changePercent;
+      const finalHistory = liveYahooQuote?.history?.length
+        ? liveYahooQuote.history
+        : [
+            currentItem.currentPrice * 0.98,
+            currentItem.currentPrice * 0.99,
+            currentItem.currentPrice,
+          ];
+
       newStock = {
         id: uniqueId,
         symbol: currentItem.symbol,
@@ -119,21 +179,19 @@ export const AddStockModal: React.FC<AddStockModalProps> = ({
         nameEn: currentItem.nameEn,
         market: currentItem.market,
         currency: currentItem.currency,
-        currentPrice: currentItem.currentPrice,
-        previousClose: currentItem.currentPrice - currentItem.change,
-        change: currentItem.change,
-        changePercent: currentItem.changePercent,
-        dayHigh: currentItem.currentPrice * 1.015,
-        dayLow: currentItem.currentPrice * 0.985,
-        history: [
-          currentItem.currentPrice * 0.98,
-          currentItem.currentPrice * 0.99,
-          currentItem.currentPrice,
-        ],
+        currentPrice: finalPrice,
+        previousClose: finalPrev,
+        change: finalChange,
+        changePercent: finalChangePct,
+        dayHigh: liveYahooQuote?.dayHigh ?? currentItem.currentPrice * 1.015,
+        dayLow: liveYahooQuote?.dayLow ?? currentItem.currentPrice * 0.985,
+        history: finalHistory,
         targetPrice: Number(targetPrice),
         condition,
         isEnabled: true,
         isTriggered: false,
+        dataSource: liveYahooQuote ? 'yahoo' : currentItem.market === 'US' ? 'yahoo' : 'initial',
+        lastSyncedAt: liveYahooQuote ? new Date().toISOString() : undefined,
         userNotes: notes.trim(),
         createdAt: new Date().toISOString(),
       };
@@ -257,9 +315,21 @@ export const AddStockModal: React.FC<AddStockModalProps> = ({
                 </div>
 
                 <div>
-                  <label className="block text-xs text-slate-400 mb-1">
-                    מחיר נוכחי ({selectedMarket === 'TASE' ? 'באגורות, לדוגמה 3500' : 'בדולרים, לדוגמה 150.50'})
-                  </label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-xs text-slate-400">
+                      מחיר נוכחי ({selectedMarket === 'TASE' ? 'באגורות, לדוגמה 3500' : 'בדולרים, לדוגמה 150.50'})
+                    </label>
+                    {customSymbol.trim() && (
+                      <button
+                        type="button"
+                        onClick={handleFetchCustomLiveQuote}
+                        disabled={isLoadingLiveQuote}
+                        className="text-xs text-purple-400 hover:text-purple-300 flex items-center gap-1 font-semibold"
+                      >
+                        {isLoadingLiveQuote ? 'טוען מ-Yahoo...' : 'טען מחיר עדכני מ-Yahoo ⚡'}
+                      </button>
+                    )}
+                  </div>
                   <input
                     type="number"
                     step="any"
@@ -379,9 +449,18 @@ export const AddStockModal: React.FC<AddStockModalProps> = ({
                 <span className="text-xs text-slate-300 font-medium">
                   מחיר יעד להתראה ({effectiveCurrency === 'USD' ? 'בדולר $' : 'באגורות ₪'}):
                 </span>
-                <span className="text-xs font-mono-numbers text-slate-400">
-                  מחיר נוכחי: {formatPrice(effectiveCurrentPrice, selectedMarket, effectiveCurrency).primary}
-                </span>
+                <div className="flex items-center gap-2">
+                  {isLoadingLiveQuote ? (
+                    <span className="text-[10px] text-purple-400 animate-pulse font-medium">בודק Yahoo... ⏳</span>
+                  ) : liveYahooQuote ? (
+                    <span className="text-[10px] bg-purple-950 border border-purple-500/40 text-purple-300 px-1.5 py-0.5 rounded font-mono-numbers">
+                      Yahoo Live 🟢
+                    </span>
+                  ) : null}
+                  <span className="text-xs font-mono-numbers text-slate-400">
+                    מחיר נוכחי: {formatPrice(effectiveCurrentPrice, selectedMarket, effectiveCurrency).primary}
+                  </span>
+                </div>
               </div>
 
               <div className="relative">

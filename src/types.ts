@@ -37,6 +37,8 @@ export interface MonitoredStock {
   triggeredAt?: string;
   triggeredPrice?: number;
   userNotes?: string;
+  dataSource?: 'yahoo' | 'simulated' | 'initial';
+  lastSyncedAt?: string;
   createdAt: string;
 }
 

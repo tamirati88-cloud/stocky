@@ -13,6 +13,7 @@ import { EditStockModal } from './components/EditStockModal';
 import { AlertBanner } from './components/AlertBanner';
 import { AlertHistoryDrawer } from './components/AlertHistoryDrawer';
 import { Plus, Bell, RefreshCw, Layers } from 'lucide-react';
+import { fetchYahooQuotes } from './services/yahooFinance';
 
 const STORAGE_KEY_STOCKS = 'stockpulse_monitored_stocks_v2';
 const STORAGE_KEY_LOGS = 'stockpulse_alert_logs_v2';
@@ -49,6 +50,10 @@ export default function App() {
     }
     return true;
   });
+
+  // --- Yahoo Finance API Sync State ---
+  const [isSyncingYahoo, setIsSyncingYahoo] = useState(false);
+  const [lastYahooSync, setLastYahooSync] = useState<string | null>(null);
 
   // --- UI State ---
   const [isSimulating, setIsSimulating] = useState(true);
@@ -119,7 +124,100 @@ export default function App() {
     [soundEnabled]
   );
 
-  // --- Live Price Tick Simulation Engine ---
+  // --- Real-Time Yahoo Finance API Sync for US Stocks ---
+  const syncUSStocksFromYahoo = useCallback(async () => {
+    setIsSyncingYahoo(true);
+    try {
+      setStocks((currentStocks) => {
+        const usStocks = currentStocks.filter((s) => s.market === 'US');
+        if (usStocks.length === 0) {
+          setIsSyncingYahoo(false);
+          return currentStocks;
+        }
+
+        const symbols = usStocks.map((s) => s.symbol);
+        fetchYahooQuotes(symbols)
+          .then((quotes) => {
+            if (!quotes || Object.keys(quotes).length === 0) return;
+
+            setStocks((latest) =>
+              latest.map((stock) => {
+                if (stock.market !== 'US') return stock;
+                const q = quotes[stock.symbol];
+                if (!q || q.price <= 0) return stock;
+
+                const oldPrice = stock.currentPrice;
+                const newPrice = q.price;
+                const direction: 'up' | 'down' = newPrice >= oldPrice ? 'up' : 'down';
+
+                let isTriggered = stock.isTriggered;
+                let triggeredAt = stock.triggeredAt;
+                let triggeredPrice = stock.triggeredPrice;
+
+                // Check alert criteria
+                if (stock.isEnabled && !stock.isTriggered) {
+                  let hit = false;
+                  if (stock.condition === 'ABOVE' && newPrice >= stock.targetPrice) {
+                    hit = true;
+                  } else if (stock.condition === 'BELOW' && newPrice <= stock.targetPrice) {
+                    hit = true;
+                  }
+
+                  if (hit) {
+                    isTriggered = true;
+                    triggeredAt = new Date().toISOString();
+                    triggeredPrice = newPrice;
+                    setTimeout(() => {
+                      triggerAlertForStock(stock, newPrice);
+                    }, 50);
+                  }
+                }
+
+                return {
+                  ...stock,
+                  currentPrice: newPrice,
+                  previousClose: q.previousClose,
+                  change: q.change,
+                  changePercent: q.changePercent,
+                  dayHigh: q.dayHigh,
+                  dayLow: q.dayLow,
+                  history: q.history.length > 0 ? q.history : stock.history,
+                  lastTickDirection: direction,
+                  dataSource: 'yahoo',
+                  lastSyncedAt: new Date().toISOString(),
+                  isTriggered,
+                  triggeredAt,
+                  triggeredPrice,
+                };
+              })
+            );
+            setLastYahooSync(new Date().toISOString());
+          })
+          .catch((err) => {
+            console.error('Yahoo Finance API fetch error:', err);
+          })
+          .finally(() => {
+            setIsSyncingYahoo(false);
+          });
+
+        return currentStocks;
+      });
+    } catch (err) {
+      console.error('Failed to sync US stocks from Yahoo Finance:', err);
+      setIsSyncingYahoo(false);
+    }
+  }, [triggerAlertForStock]);
+
+  // Sync from Yahoo Finance on startup and every 25 seconds
+  useEffect(() => {
+    syncUSStocksFromYahoo();
+    const interval = setInterval(() => {
+      syncUSStocksFromYahoo();
+    }, 25000);
+    return () => clearInterval(interval);
+  }, [syncUSStocksFromYahoo]);
+
+  // --- Live Price Tick Simulation Engine (gentle micro-ticks) ---
   useEffect(() => {
     if (!isSimulating) return;
 
@@ -206,6 +304,11 @@ export default function App() {
   // --- Handlers ---
   const handleAddStock = (newStock: MonitoredStock) => {
     setStocks((prev) => [newStock, ...prev]);
+    if (newStock.market === 'US') {
+      setTimeout(() => {
+        syncUSStocksFromYahoo();
+      }, 100);
+    }
   };
 
   const handleEditStock = (updatedStock: MonitoredStock) => {
@@ -386,8 +489,12 @@ export default function App() {
 
       {/* Main Container */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
-        {/* Real-time Market Status Bar */}
-        <MarketStatusBar />
+        {/* Real-time Market Status Bar with Yahoo Finance API Sync */}
+        <MarketStatusBar
+          isSyncingYahoo={isSyncingYahoo}
+          lastYahooSync={lastYahooSync}
+          onRefreshYahoo={syncUSStocksFromYahoo}
+        />
 
         {/* HERO SECTION WITH LARGE ADD BUTTON AS REQUESTED */}
         <HeroAddButton
