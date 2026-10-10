@@ -24,13 +24,31 @@ interface CachedQuote {
   history: number[];
   timestamp: number;
   cachedAt: number;
+  yahooUrl?: string;
+  investingUrl?: string;
 }
 
 const quoteCache = new Map<string, CachedQuote>();
 const CACHE_TTL_MS = 10_000; // 10 seconds cache
 
 /**
- * Fetch quote and intraday history from Yahoo Finance
+ * Generate external research links for Yahoo Finance and Investing.com
+ */
+function getExternalLinks(symbol: string) {
+  const clean = symbol.trim().toUpperCase();
+  const isIsraeli = clean.endsWith('.TA');
+  const baseSymbol = clean.replace('.TA', '');
+
+  const yahooUrl = `https://finance.yahoo.com/quote/${encodeURIComponent(clean)}`;
+  const investingUrl = isIsraeli
+    ? `https://il.investing.com/search/?q=${encodeURIComponent(baseSymbol)}`
+    : `https://www.investing.com/search/?q=${encodeURIComponent(baseSymbol)}`;
+
+  return { yahooUrl, investingUrl };
+}
+
+/**
+ * Fetch quote and intraday history from Yahoo Finance, with Israeli .TA fallback
  */
 async function fetchYahooQuote(symbol: string): Promise<CachedQuote | null> {
   const cleanSymbol = symbol.trim().toUpperCase();
@@ -39,8 +57,28 @@ async function fetchYahooQuote(symbol: string): Promise<CachedQuote | null> {
     return cached;
   }
 
+  // Try direct symbol first
+  let quote = await tryFetchSingleSymbol(cleanSymbol);
+
+  // If not found and doesn't have a dot, try appending .TA (for Israeli stocks)
+  if (!quote && !cleanSymbol.includes('.')) {
+    quote = await tryFetchSingleSymbol(`${cleanSymbol}.TA`);
+  }
+
+  if (quote) {
+    quoteCache.set(cleanSymbol, quote);
+    // Also cache under the symbol with .TA or without
+    if (cleanSymbol.endsWith('.TA')) {
+      quoteCache.set(cleanSymbol.replace('.TA', ''), quote);
+    }
+  }
+
+  return quote;
+}
+
+async function tryFetchSingleSymbol(sym: string): Promise<CachedQuote | null> {
   try {
-    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(cleanSymbol)}?interval=15m&range=1d`;
+    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?interval=15m&range=1d`;
     const response = await fetch(url, {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -49,26 +87,20 @@ async function fetchYahooQuote(symbol: string): Promise<CachedQuote | null> {
     });
 
     if (!response.ok) {
-      // If 1d range fails (e.g. weekend or pre-market), fallback to 5d
-      const fallbackUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(cleanSymbol)}?interval=1d&range=5d`;
+      // If 1d range fails, fallback to 5d
+      const fallbackUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?interval=1d&range=5d`;
       const fallbackRes = await fetch(fallbackUrl, {
         headers: { 'User-Agent': 'Mozilla/5.0' },
       });
       if (!fallbackRes.ok) return null;
       const fbData = await fallbackRes.json();
-      return parseYahooResponse(cleanSymbol, fbData);
+      return parseYahooResponse(sym, fbData);
     }
 
     const data = await response.json();
-    const parsed = parseYahooResponse(cleanSymbol, data);
-    if (parsed) {
-      quoteCache.set(cleanSymbol, parsed);
-    }
-    return parsed;
+    return parseYahooResponse(sym, data);
   } catch (err) {
-    console.error(`Error fetching Yahoo quote for ${cleanSymbol}:`, err);
-    // Return stale cache if available
-    if (cached) return cached;
+    console.error(`Error fetching quote for ${sym}:`, err);
     return null;
   }
 }
@@ -101,6 +133,8 @@ function parseYahooResponse(symbol: string, data: any): CachedQuote | null {
       history.unshift(prevClose);
     }
 
+    const { yahooUrl, investingUrl } = getExternalLinks(symbol);
+
     return {
       symbol,
       price,
@@ -113,6 +147,8 @@ function parseYahooResponse(symbol: string, data: any): CachedQuote | null {
       history,
       timestamp: meta.regularMarketTime ? meta.regularMarketTime * 1000 : Date.now(),
       cachedAt: Date.now(),
+      yahooUrl,
+      investingUrl,
     };
   } catch (err) {
     console.error(`Failed to parse Yahoo Finance response for ${symbol}:`, err);

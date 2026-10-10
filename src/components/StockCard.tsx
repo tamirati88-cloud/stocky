@@ -12,7 +12,8 @@ import {
   ChevronRight,
   Target,
   Clock,
-  Sparkles
+  Sparkles,
+  ExternalLink
 } from 'lucide-react';
 import { MonitoredStock } from '../types';
 import { formatPrice, formatChangePercent, formatChangeValue, getConditionLabel, formatTimestamp } from '../utils/formatters';
@@ -113,11 +114,15 @@ export const StockCard: React.FC<StockCardProps> = ({
                   </span>
                   {stock.dataSource === 'yahoo' && (
                     <span 
-                      title={stock.lastSyncedAt ? `מחיר עדכני מ-Yahoo Finance (${new Date(stock.lastSyncedAt).toLocaleTimeString('he-IL')})` : 'מחיר עדכני מ-Yahoo Finance'}
-                      className="text-[10px] bg-purple-950/70 border border-purple-500/40 text-purple-300 px-1.5 py-0.5 rounded flex items-center gap-1 font-mono-numbers"
+                      title={stock.lastSyncedAt ? `מחיר עדכני מ-Yahoo / Investing (${new Date(stock.lastSyncedAt).toLocaleTimeString('he-IL')})` : 'מחיר עדכני בזמן אמת'}
+                      className={`text-[10px] px-1.5 py-0.5 rounded flex items-center gap-1 font-mono-numbers border ${
+                        stock.market === 'TASE'
+                          ? 'bg-blue-950/80 border-blue-500/50 text-blue-300'
+                          : 'bg-purple-950/80 border-purple-500/50 text-purple-300'
+                      }`}
                     >
-                      <span className="w-1.5 h-1.5 rounded-full bg-purple-400 animate-pulse" />
-                      <span>Yahoo Live</span>
+                      <span className={`w-1.5 h-1.5 rounded-full animate-pulse ${stock.market === 'TASE' ? 'bg-blue-400' : 'bg-purple-400'}`} />
+                      <span>{stock.market === 'TASE' ? 'ת״א Live 🟢' : 'Yahoo Live 🟢'}</span>
                     </span>
                   )}
                 </div>
@@ -272,6 +277,37 @@ export const StockCard: React.FC<StockCardProps> = ({
                 📝 {stock.userNotes}
               </p>
             )}
+
+            {/* Quick External Research Links to Yahoo Finance and Investing.com */}
+            <div className="flex items-center gap-2 pt-1.5 border-t border-slate-800/60 text-[11px]">
+              <span className="text-slate-500 font-medium">לצפייה בנתונים:</span>
+              <a
+                href={stock.yahooUrl || `https://finance.yahoo.com/quote/${encodeURIComponent(stock.symbol)}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 text-purple-400 hover:text-purple-300 hover:underline transition"
+                title="צפה במניה ב-Yahoo Finance"
+              >
+                <span>Yahoo</span>
+                <ExternalLink className="w-2.5 h-2.5" />
+              </a>
+              <span className="text-slate-700">·</span>
+              <a
+                href={
+                  stock.investingUrl ||
+                  (stock.market === 'TASE'
+                    ? `https://il.investing.com/search/?q=${encodeURIComponent(stock.symbol.replace('.TA', ''))}`
+                    : `https://www.investing.com/search/?q=${encodeURIComponent(stock.symbol)}`)
+                }
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 text-amber-400 hover:text-amber-300 hover:underline transition"
+                title="צפה במניה ב-Investing.com"
+              >
+                <span>Investing</span>
+                <ExternalLink className="w-2.5 h-2.5" />
+              </a>
+            </div>
           </div>
         </div>
 

@@ -59,17 +59,14 @@ export const AddStockModal: React.FC<AddStockModalProps> = ({
 
     let basePrice = item.currentPrice;
 
-    // If it's a US stock, fetch real-time price from Yahoo Finance
-    if (item.market === 'US') {
-      setIsLoadingLiveQuote(true);
-      const yahooData = await fetchSingleYahooQuote(symbol);
-      setIsLoadingLiveQuote(false);
-      if (yahooData && yahooData.price > 0) {
-        setLiveYahooQuote(yahooData);
-        basePrice = yahooData.price;
-      } else {
-        setLiveYahooQuote(null);
-      }
+    // Fetch real-time price from Yahoo Finance / TASE live feed
+    setIsLoadingLiveQuote(true);
+    const lookupSymbol = item.market === 'TASE' && !symbol.includes('.') ? `${symbol}.TA` : symbol;
+    const yahooData = await fetchSingleYahooQuote(lookupSymbol);
+    setIsLoadingLiveQuote(false);
+    if (yahooData && yahooData.price > 0) {
+      setLiveYahooQuote(yahooData);
+      basePrice = yahooData.price;
     } else {
       setLiveYahooQuote(null);
     }
@@ -84,13 +81,20 @@ export const AddStockModal: React.FC<AddStockModalProps> = ({
   const handleFetchCustomLiveQuote = async () => {
     if (!customSymbol.trim()) return;
     setIsLoadingLiveQuote(true);
-    const yahooData = await fetchSingleYahooQuote(customSymbol.trim());
+    const lookupSymbol = selectedMarket === 'TASE' && !customSymbol.trim().includes('.')
+      ? `${customSymbol.trim().toUpperCase()}.TA`
+      : customSymbol.trim().toUpperCase();
+    const yahooData = await fetchSingleYahooQuote(lookupSymbol);
     setIsLoadingLiveQuote(false);
     if (yahooData && yahooData.price > 0) {
       setLiveYahooQuote(yahooData);
       setCustomPrice(yahooData.price);
       const multiplier = condition === 'ABOVE' ? 1.03 : 0.97;
-      setTargetPrice(Number((yahooData.price * multiplier).toFixed(2)));
+      setTargetPrice(
+        selectedMarket === 'TASE'
+          ? Math.round(yahooData.price * multiplier)
+          : Number((yahooData.price * multiplier).toFixed(2))
+      );
     }
   };
 
@@ -154,6 +158,8 @@ export const AddStockModal: React.FC<AddStockModalProps> = ({
         isTriggered: false,
         dataSource: liveYahooQuote ? 'yahoo' : 'simulated',
         lastSyncedAt: liveYahooQuote ? new Date().toISOString() : undefined,
+        yahooUrl: liveYahooQuote?.yahooUrl,
+        investingUrl: liveYahooQuote?.investingUrl,
         userNotes: notes.trim(),
         createdAt: new Date().toISOString(),
       };
@@ -190,8 +196,10 @@ export const AddStockModal: React.FC<AddStockModalProps> = ({
         condition,
         isEnabled: true,
         isTriggered: false,
-        dataSource: liveYahooQuote ? 'yahoo' : currentItem.market === 'US' ? 'yahoo' : 'initial',
+        dataSource: liveYahooQuote ? 'yahoo' : 'initial',
         lastSyncedAt: liveYahooQuote ? new Date().toISOString() : undefined,
+        yahooUrl: liveYahooQuote?.yahooUrl,
+        investingUrl: liveYahooQuote?.investingUrl,
         userNotes: notes.trim(),
         createdAt: new Date().toISOString(),
       };

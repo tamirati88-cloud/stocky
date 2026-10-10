@@ -39,6 +39,8 @@ export interface MonitoredStock {
   userNotes?: string;
   dataSource?: 'yahoo' | 'simulated' | 'initial';
   lastSyncedAt?: string;
+  yahooUrl?: string;
+  investingUrl?: string;
   createdAt: string;
 }
 

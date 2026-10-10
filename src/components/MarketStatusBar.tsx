@@ -28,7 +28,9 @@ export const MarketStatusBar: React.FC<MarketStatusBarProps> = ({
             <div>
               <div className="flex items-center gap-2">
                 <span className="font-bold text-sm text-slate-100">בורסת תל אביב (TASE)</span>
-                <span className="text-xs text-slate-400">ת״א 35, בנקים, מניות מקומיות</span>
+                <span className="text-[10px] px-1.5 py-0.2 rounded bg-blue-950 border border-blue-500/40 text-blue-300 font-mono-numbers">
+                  Yahoo / Investing Live 🟢
+                </span>
               </div>
               <div className="text-xs text-slate-400 mt-0.5">
                 שעות מסחר: <span className="text-slate-300 font-mono-numbers">{taseStatus.tradingHours}</span>
@@ -94,19 +96,19 @@ export const MarketStatusBar: React.FC<MarketStatusBarProps> = ({
         </div>
       </div>
 
-      {/* Live Yahoo API Sync Banner */}
-      <div className="bg-purple-950/20 border border-purple-500/25 rounded-xl px-4 py-2 flex flex-wrap items-center justify-between gap-3 text-xs">
-        <div className="flex items-center gap-2 text-purple-200">
+      {/* Live Market API Sync Banner for both Israel & US */}
+      <div className="bg-slate-900/90 border border-slate-800 rounded-xl px-4 py-2.5 flex flex-wrap items-center justify-between gap-3 text-xs shadow-sm">
+        <div className="flex items-center gap-2.5 text-slate-200">
           <span className="flex h-2 w-2 relative">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-purple-400 opacity-75"></span>
-            <span className="relative inline-flex rounded-full h-2 w-2 bg-purple-500"></span>
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+            <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
           </span>
-          <span className="font-bold">Yahoo Finance Live API:</span>
-          <span className="text-purple-300">
-            מחירי המניות האמריקאיות מתעדכנים ישירות מ-Yahoo Finance
+          <span className="font-bold text-white">סנכרון שוק חי (Live Feed):</span>
+          <span className="text-slate-300">
+            מחירי המניות מישראל (ת״א) ומארה״ב מתעדכנים ישירות מ-Yahoo Finance ו-Investing
           </span>
           {lastYahooSync && (
-            <span className="text-slate-400 text-[11px] font-mono-numbers">
+            <span className="text-emerald-400 text-[11px] font-mono-numbers font-semibold">
               (סנכרון אחרון: {new Date(lastYahooSync).toLocaleTimeString('he-IL')})
             </span>
           )}
@@ -116,10 +118,10 @@ export const MarketStatusBar: React.FC<MarketStatusBarProps> = ({
           <button
             onClick={onRefreshYahoo}
             disabled={isSyncingYahoo}
-            className="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-purple-900/40 hover:bg-purple-900/60 text-purple-200 border border-purple-500/30 font-medium transition cursor-pointer disabled:opacity-50"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/30 font-semibold transition cursor-pointer disabled:opacity-50"
           >
-            <RefreshCw className={`w-3.5 h-3.5 ${isSyncingYahoo ? 'animate-spin text-purple-300' : ''}`} />
-            <span>{isSyncingYahoo ? 'מסנכרן מ-Yahoo...' : 'רענן מחירי ארה״ב כעת'}</span>
+            <RefreshCw className={`w-3.5 h-3.5 ${isSyncingYahoo ? 'animate-spin text-emerald-300' : ''}`} />
+            <span>{isSyncingYahoo ? 'מסנכרן מחירים...' : 'רענן את כל המניות כעת'}</span>
           </button>
         )}
       </div>

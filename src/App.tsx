@@ -124,26 +124,37 @@ export default function App() {
     [soundEnabled]
   );
 
-  // --- Real-Time Yahoo Finance API Sync for US Stocks ---
-  const syncUSStocksFromYahoo = useCallback(async () => {
+  // --- Real-Time Market Live Sync for Israel (TASE) & US Stocks ---
+  const syncLiveMarketQuotes = useCallback(async () => {
     setIsSyncingYahoo(true);
     try {
       setStocks((currentStocks) => {
-        const usStocks = currentStocks.filter((s) => s.market === 'US');
-        if (usStocks.length === 0) {
+        if (currentStocks.length === 0) {
           setIsSyncingYahoo(false);
           return currentStocks;
         }
 
-        const symbols = usStocks.map((s) => s.symbol);
-        fetchYahooQuotes(symbols)
+        // Format symbols for Yahoo Finance API
+        // For Israeli stocks without dot, ensure .TA is appended
+        const symbolsToFetch = currentStocks.map((s) => {
+          if (s.market === 'TASE' && !s.symbol.includes('.')) {
+            return `${s.symbol}.TA`;
+          }
+          return s.symbol;
+        });
+
+        fetchYahooQuotes(symbolsToFetch)
           .then((quotes) => {
             if (!quotes || Object.keys(quotes).length === 0) return;
 
             setStocks((latest) =>
               latest.map((stock) => {
-                if (stock.market !== 'US') return stock;
-                const q = quotes[stock.symbol];
+                // Find matching quote from Yahoo either directly or with .TA
+                const q =
+                  quotes[stock.symbol] ||
+                  quotes[`${stock.symbol}.TA`] ||
+                  quotes[stock.symbol.replace('.TA', '')];
+
                 if (!q || q.price <= 0) return stock;
 
                 const oldPrice = stock.currentPrice;
@@ -181,10 +192,12 @@ export default function App() {
                   changePercent: q.changePercent,
                   dayHigh: q.dayHigh,
                   dayLow: q.dayLow,
-                  history: q.history.length > 0 ? q.history : stock.history,
+                  history: q.history && q.history.length > 0 ? q.history : stock.history,
                   lastTickDirection: direction,
                   dataSource: 'yahoo',
                   lastSyncedAt: new Date().toISOString(),
+                  yahooUrl: q.yahooUrl,
+                  investingUrl: q.investingUrl,
                   isTriggered,
                   triggeredAt,
                   triggeredPrice,
@@ -194,7 +207,7 @@ export default function App() {
             setLastYahooSync(new Date().toISOString());
           })
           .catch((err) => {
-            console.error('Yahoo Finance API fetch error:', err);
+            console.error('Market Live API fetch error:', err);
           })
           .finally(() => {
             setIsSyncingYahoo(false);
@@ -203,19 +216,19 @@ export default function App() {
         return currentStocks;
       });
     } catch (err) {
-      console.error('Failed to sync US stocks from Yahoo Finance:', err);
+      console.error('Failed to sync stocks from market feed:', err);
       setIsSyncingYahoo(false);
     }
   }, [triggerAlertForStock]);
 
-  // Sync from Yahoo Finance on startup and every 25 seconds
+  // Sync from live market feed on startup and every 25 seconds
   useEffect(() => {
-    syncUSStocksFromYahoo();
+    syncLiveMarketQuotes();
     const interval = setInterval(() => {
-      syncUSStocksFromYahoo();
+      syncLiveMarketQuotes();
     }, 25000);
     return () => clearInterval(interval);
-  }, [syncUSStocksFromYahoo]);
+  }, [syncLiveMarketQuotes]);
 
   // --- Live Price Tick Simulation Engine (gentle micro-ticks) ---
   useEffect(() => {
@@ -304,11 +317,9 @@ export default function App() {
   // --- Handlers ---
   const handleAddStock = (newStock: MonitoredStock) => {
     setStocks((prev) => [newStock, ...prev]);
-    if (newStock.market === 'US') {
-      setTimeout(() => {
-        syncUSStocksFromYahoo();
-      }, 100);
-    }
+    setTimeout(() => {
+      syncLiveMarketQuotes();
+    }, 100);
   };
 
   const handleEditStock = (updatedStock: MonitoredStock) => {
@@ -493,7 +504,7 @@ export default function App() {
         <MarketStatusBar
           isSyncingYahoo={isSyncingYahoo}
           lastYahooSync={lastYahooSync}
-          onRefreshYahoo={syncUSStocksFromYahoo}
+          onRefreshYahoo={syncLiveMarketQuotes}
         />
 
         {/* HERO SECTION WITH LARGE ADD BUTTON AS REQUESTED */}

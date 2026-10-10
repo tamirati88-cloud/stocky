@@ -9,6 +9,8 @@ export interface YahooQuoteData {
   currency: string;
   history: number[];
   timestamp: number;
+  yahooUrl?: string;
+  investingUrl?: string;
 }
 
 export interface YahooBatchResponse {
