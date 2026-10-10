@@ -1,0 +1,6 @@
+{
+  "name": "StockPulse - התראות מניות ישראל וארה״ב",
+  "description": "מעקב והתראות בזמן אמת על מחירי מניות בבורסת תל אביב (TASE) ובבורסות ארה״ב (NYSE/NASDAQ)",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
