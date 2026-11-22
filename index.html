@@ -139,9 +139,9 @@ async function load(m, force){
   if(!force && data[m]) return;
   if(cfg.token){
     try{
-      const [dash, lv, stt, wlj, wd, op] = await Promise.all(["dashboard_data.json","intraday_levels.json","intraday_state.json","watchlist.json","watchlist_data.json","opportunities.json"].map(f=>gh(repo,f)));
+      const [dash, lv, stt, wlj, wd, op, nw] = await Promise.all(["dashboard_data.json","intraday_levels.json","intraday_state.json","watchlist.json","watchlist_data.json","opportunities.json","news_data.json"].map(f=>gh(repo,f)));
       if(!dash && !wlj && !wd && !op) throw new Error("אין עדיין נתונים בריפו. הרץ daily-alert פעם אחת");
-      data[m] = {dash, lv, stt, wl:(wlj&&wlj.tickers)||[], wd, op, at:Date.now()}; errs[m]=""; LS.set(key, data[m]); return;
+      data[m] = {dash, lv, stt, wl:(wlj&&wlj.tickers)||[], wd, op, nw, at:Date.now()}; errs[m]=""; LS.set(key, data[m]); return;
     }catch(e){ errs[m]=e.message; }
   } else errs[m]="אין טוקן";
   const c = LS.get(key,null); if(c) data[m]=c;
@@ -199,6 +199,10 @@ function newsHtml(n){
     <div class="mut">${esc(x.source||"")} · ${fdate(x.date)}</div>${x.summary?`<div>${esc(x.summary)}</div>`:""}</div>`).join("")
     :'<div class="mut">לא נמצאו חדשות מהשבוע האחרון.</div>')+'<div class="note">התקציר אוטומטי ומבוסס על הכותרת בלבד.</div></div>';
 }
+function newsFor(d,t){
+  const w=d.wd&&d.wd.items&&d.wd.items[t]; const n=(w&&w.news)||((d.nw&&d.nw.items&&d.nw.items[t])||{}).news;
+  return n?newsHtml(n):'<div class="news"><b>חדשות עדכניות</b><div class="mut">עוד לא נטענו חדשות לנייר הזה. הן נטענות בהרצת daily-alert.</div></div>';
+}
 function watchView(m,d){
   const wl=d.wl||[], wd=(d.wd&&d.wd.items)||{}, we=(d.wd&&d.wd.errors)||{}, u=(d.wd&&d.wd.unit)||(d.dash&&d.dash.unit)||(m==="us"?"usd":"ils");
   const ph = m==="il"?"סימול או מספר נייר, למשל NICE או 1081124":"סימול, למשל NVDA";
@@ -225,8 +229,8 @@ function oppView(m,d){
   const sl=t=>(t.pending.length?"חצתה את הקו ואושר איתות · ":"")+`עד הקו העליון: <bdi>${pct(t.dist_upper)}</bdi> · חוזק ${Math.round(ss(t))}`;
   const info=d.op?`נסרקו ${d.op.scanned} ניירות · סריקה מ-${esc((d.op.updated||"").slice(0,10))}`:"אין עדיין סריקה שבועית. מוצגים ניירות מהבדיקה היומית";
   return `<div class="mut" style="margin:2px 4px 8px">${info}</div>`+
-    `<div class="mut" style="margin:4px 4px 8px">🟢 קרובות לכניסה (קו תחתון) · ${buy.length}</div>`+(buy.length?buy.map(t=>item(t,u,null,"",false,bl(t))).join(""):'<div class="msg">אין כרגע</div>')+
-    `<div class="mut" style="margin:14px 4px 8px">🔴 קרובות ליציאה (קו עליון) · ${sell.length}</div>`+(sell.length?sell.map(t=>item(t,u,null,"",false,sl(t))).join(""):'<div class="msg">אין כרגע</div>')+
+    `<div class="mut" style="margin:4px 4px 8px">🟢 קרובות לכניסה (קו תחתון) · ${buy.length}</div>`+(buy.length?buy.map(t=>item(t,u,null,newsFor(d,t.ticker),false,bl(t))).join(""):'<div class="msg">אין כרגע</div>')+
+    `<div class="mut" style="margin:14px 4px 8px">🔴 קרובות ליציאה (קו עליון) · ${sell.length}</div>`+(sell.length?sell.map(t=>item(t,u,null,newsFor(d,t.ticker),false,sl(t))).join(""):'<div class="msg">אין כרגע</div>')+
     '<div class="note">הרשימה מבוססת על הסריקה השבועית והבדיקה היומית. אין זו המלצה לקנות או למכור.</div>';
 }
 function drawOpen(){
@@ -258,8 +262,8 @@ function render(){
   const rest=T.filter(t=>!t.held&&(t.pending.length||t.kind)).sort((a,b)=>rank(a)-rank(b));
   main.innerHTML = warn+subs+
    (held.length?`<div class="card sum"><div class="mut">שווי<b>${fmt(val,u==="agorot"?"ils":u)}</b></div><div class="mut">עלות<b>${fmt(cost,u==="agorot"?"ils":u)}</b></div><div class="mut">רווח<b class="${sgn(val/cost-1)}">${pct(val/cost-1)}</b></div></div>`:"")+
-   (sorted.length?`<div class="mut" style="margin:4px 4px 8px">אחזקות (${sorted.length})</div>`+sorted.map(t=>item(t,u,al[t.ticker])).join(""):"")+
-   (rest.length?`<div class="mut" style="margin:14px 4px 8px">ברשימת מעקב: קרובות לקו או עם איתות</div>`+rest.map(t=>item(t,u,al[t.ticker])).join(""):"")+
+   (sorted.length?`<div class="mut" style="margin:4px 4px 8px">אחזקות (${sorted.length})</div>`+sorted.map(t=>item(t,u,al[t.ticker],newsFor(d,t.ticker))).join(""):"")+
+   (rest.length?`<div class="mut" style="margin:14px 4px 8px">ברשימת מעקב: קרובות לקו או עם איתות</div>`+rest.map(t=>item(t,u,al[t.ticker],newsFor(d,t.ticker))).join(""):"")+
    `<div class="note">הנתונים נטענים מהריפואים שלך ומתעדכנים אחרי הסגירה; התראות תוך-יומיות מופיעות עם ⚡.${held.some(t=>t.proxied)?" ערכים עם 'הערכה לפי מדד' אינם מחיר אמיתי.":""}</div>`;
 }
 document.addEventListener("click",ev=>{
