@@ -176,7 +176,7 @@ function item(t,u,intr,extra,open,line){
   (intr||[]).forEach(a=>chips.push(`<span class="chip warn">⚡ ${a}</span>`));
   const h=t.held, pl=h?t.price/h.avg-1:null;
   const z=t.z["252"];
-  return `<div class="card item${open?" open":""}" data-t="${esc(t.ticker)}"><div class="top"><span class="nm">${esc(t.name)}${u==="usd"&&t.name!==t.ticker?` <bdi class="mut">${esc(t.ticker)}</bdi>`:""}</span><span>${fmt(t.price,u)}</span></div>
+  return `<div class="card item${open?" open":""}" data-t="${esc(t.ticker)}"><div class="top"><span class="nm">${esc(t.name||t.ticker)}${u==="usd"&&t.name&&t.name!==t.ticker?` <bdi class="mut">${esc(t.ticker)}</bdi>`:""}</span><span>${fmt(t.price,u)}</span></div>
    <div class="top mut"><span>${h?`${h.qty} יח׳ · ממוצע ${fmt(h.avg,u)}`:"ברשימת מעקב"}</span><span class="${sgn(pl)}">${h?pct(pl):""}</span></div>
    <div>${chips.join("")}</div>${line?`<div class="mut">${line}</div>`:""}
    <div class="det">${t.series?'<canvas></canvas>':'<div class="mut">אין גרף: הערוץ מחושב על נכס אחר.</div>'}
