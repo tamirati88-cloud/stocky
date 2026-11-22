@@ -25,7 +25,7 @@ main{padding:12px;max-width:760px;margin:auto}
 .mut{color:var(--mut);font-size:13px}
 .item{cursor:pointer}
 .top{display:flex;justify-content:space-between;gap:8px;align-items:baseline}
-.nm{font-weight:600}
+.nm{font-weight:600;unicode-bidi:plaintext}
 .chip{display:inline-block;font-size:12px;border-radius:999px;padding:1px 8px;margin:2px 0 0 4px;border:1px solid var(--line);color:var(--mut)}
 .chip.ok{color:var(--ok);border-color:var(--ok)}.chip.bad{color:var(--bad);border-color:var(--bad)}.chip.warn{color:var(--warn);border-color:var(--warn)}
 .up{color:var(--ok)}.dn{color:var(--bad)}
@@ -139,9 +139,9 @@ async function load(m, force){
   if(!force && data[m]) return;
   if(cfg.token){
     try{
-      const [dash, lv, stt, wlj, wd] = await Promise.all(["dashboard_data.json","intraday_levels.json","intraday_state.json","watchlist.json","watchlist_data.json"].map(f=>gh(repo,f)));
-      if(!dash && !wlj && !wd) throw new Error("אין עדיין נתונים בריפו. הרץ daily-alert פעם אחת");
-      data[m] = {dash, lv, stt, wl:(wlj&&wlj.tickers)||[], wd, at:Date.now()}; errs[m]=""; LS.set(key, data[m]); return;
+      const [dash, lv, stt, wlj, wd, op] = await Promise.all(["dashboard_data.json","intraday_levels.json","intraday_state.json","watchlist.json","watchlist_data.json","opportunities.json"].map(f=>gh(repo,f)));
+      if(!dash && !wlj && !wd && !op) throw new Error("אין עדיין נתונים בריפו. הרץ daily-alert פעם אחת");
+      data[m] = {dash, lv, stt, wl:(wlj&&wlj.tickers)||[], wd, op, at:Date.now()}; errs[m]=""; LS.set(key, data[m]); return;
     }catch(e){ errs[m]=e.message; }
   } else errs[m]="אין טוקן";
   const c = LS.get(key,null); if(c) data[m]=c;
@@ -167,7 +167,7 @@ function chart(cv, s, lv, u){
   [[s.up[n-1],"עליון",col("--bad")],[s.mid[n-1],"אמצע",col("--mut")],[s.lo[n-1],"תחתון",col("--ok")]].forEach(([v,t,c])=>{g.fillStyle=c;g.fillText(fmt(v,u).replace(" אג׳","")+"",w-R+4,Y(v));});
   g.fillStyle=col("--mut"); g.textAlign="center"; g.fillText(s.d[0],L+30,h-8); g.fillText(s.d[n-1],w-R-30,h-8);
 }
-function item(t,u,intr,extra,open){
+function item(t,u,intr,extra,open,line){
   const [kt,kc] = KIND[t.kind]||[null,null]; const chips=[];
   if(t.pending.length) chips.push(`<span class="chip bad">איתות: ${t.pending.map(p=>PEND[p]||p).join(", ")}</span>`);
   else if(kt) chips.push(`<span class="chip ${kc}">${kt}</span>`);
@@ -178,7 +178,7 @@ function item(t,u,intr,extra,open){
   const z=t.z["252"];
   return `<div class="card item${open?" open":""}" data-t="${esc(t.ticker)}"><div class="top"><span class="nm">${esc(t.name)}</span><span>${fmt(t.price,u)}</span></div>
    <div class="top mut"><span>${h?`${h.qty} יח׳ · ממוצע ${fmt(h.avg,u)}`:"ברשימת מעקב"}</span><span class="${sgn(pl)}">${h?pct(pl):""}</span></div>
-   <div>${chips.join("")}</div>
+   <div>${chips.join("")}</div>${line?`<div class="mut">${line}</div>`:""}
    <div class="det">${t.series?'<canvas></canvas>':'<div class="mut">אין גרף: הערוץ מחושב על נכס אחר.</div>'}
    <table>
     <tr><td>מכירת חצי (קו עליון)</td><td>${fmt(t.levels.upper,u)}</td></tr>
@@ -212,12 +212,29 @@ function watchView(m,d){
   }).join("");
   return h;
 }
+function oppView(m,d){
+  const u=(d.op&&d.op.unit)||(d.dash&&d.dash.unit)||"usd", map={};
+  ((d.op&&d.op.items)||[]).forEach(t=>map[t.ticker]=t);
+  ((d.dash&&d.dash.tickers)||[]).forEach(t=>{ if(t.kind||t.pending.length) map[t.ticker]=t; else delete map[t.ticker]; });
+  const all=Object.values(map);
+  const sellSide=t=>t.kind==="near_sell"||t.kind==="at_upper"||(t.pending.length&&t.pending[0]==="sell");
+  const sb=t=>t.s_buy||0, ss=t=>t.s_sell||0;
+  const buy=all.filter(t=>!sellSide(t)).sort((a,b)=>(b.pending.length-a.pending.length)||(sb(b)-sb(a)));
+  const sell=all.filter(sellSide).sort((a,b)=>(b.pending.length-a.pending.length)||(ss(b)-ss(a)));
+  const bl=t=>(t.pending.length?"חצתה את הקו ואושר איתות · ":"")+`מעל הקו התחתון: <bdi>${pct(t.dist_lower)}</bdi> · חוזק ${Math.round(sb(t))}`;
+  const sl=t=>(t.pending.length?"חצתה את הקו ואושר איתות · ":"")+`עד הקו העליון: <bdi>${pct(t.dist_upper)}</bdi> · חוזק ${Math.round(ss(t))}`;
+  const info=d.op?`נסרקו ${d.op.scanned} ניירות · סריקה מ-${esc((d.op.updated||"").slice(0,10))}`:"אין עדיין סריקה שבועית. מוצגים ניירות מהבדיקה היומית";
+  return `<div class="mut" style="margin:2px 4px 8px">${info}</div>`+
+    `<div class="mut" style="margin:4px 4px 8px">🟢 קרובות לכניסה (קו תחתון) · ${buy.length}</div>`+(buy.length?buy.map(t=>item(t,u,null,"",false,bl(t))).join(""):'<div class="msg">אין כרגע</div>')+
+    `<div class="mut" style="margin:14px 4px 8px">🔴 קרובות ליציאה (קו עליון) · ${sell.length}</div>`+(sell.length?sell.map(t=>item(t,u,null,"",false,sl(t))).join(""):'<div class="msg">אין כרגע</div>')+
+    '<div class="note">הרשימה מבוססת על הסריקה השבועית והבדיקה היומית. אין זו המלצה לקנות או למכור.</div>';
+}
 function drawOpen(){
   document.querySelectorAll(".item.open").forEach(it=>{
     const d=data[cur]; if(!d) return;
-    const pool=[...((d.dash&&d.dash.tickers)||[]),...Object.values((d.wd&&d.wd.items)||{})];
+    const pool=[...((d.dash&&d.dash.tickers)||[]),...Object.values((d.wd&&d.wd.items)||{}),...((d.op&&d.op.items)||[])];
     const t=pool.find(x=>x.ticker===it.dataset.t), cv=it.querySelector("canvas");
-    if(t&&t.series&&cv) chart(cv,t.series,t.levels,it.closest("#wv")?((d.wd&&d.wd.unit)||(d.dash&&d.dash.unit)||"usd"):(d.dash?d.dash.unit:"usd"));
+    if(t&&t.series&&cv) chart(cv,t.series,t.levels,it.closest("#wv")?((d.wd&&d.wd.unit)||(d.dash&&d.dash.unit)||"usd"):it.closest("#ov")?((d.op&&d.op.unit)||(d.dash&&d.dash.unit)||"usd"):(d.dash?d.dash.unit:"usd"));
   });
 }
 function render(){
@@ -225,11 +242,12 @@ function render(){
   const d=data[cur], e=errs[cur], main=$("#main");
   if(!d){ main.innerHTML=`<div class="msg">${esc(e||"אין נתונים")}<br><br><button id="open">הגדרות חיבור</button></div>`; $("#open")&&($("#open").onclick=openCfg); return; }
   const keep=($("#w_in")||{}).value||"";
-  const subs=`<div class="sub"><button data-s="pf" class="${sub==="pf"?"on":""}">התיק שלי</button><button data-s="wl" class="${sub==="wl"?"on":""}">מעקב (${(d.wl||[]).length})</button></div>`;
+  const subs=`<div class="sub"><button data-s="pf" class="${sub==="pf"?"on":""}">התיק שלי</button><button data-s="wl" class="${sub==="wl"?"on":""}">מעקב (${(d.wl||[]).length})</button><button data-s="op" class="${sub==="op"?"on":""}">קרובות לקו</button></div>`;
   const stamp=(d.dash&&d.dash.updated)||(d.wd&&d.wd.updated)||"";
   $("#upd").textContent = stamp?"עודכן "+stamp.slice(5,16).replace("T"," "):"";
   const warn=e?`<div class="card mut">⚠ ${esc(e)} (מוצגים נתונים שמורים)</div>`:"";
   if(sub==="wl"){ main.innerHTML = warn+subs+`<div id="wv">${watchView(cur,d)}</div>`; const i=$("#w_in"); if(i&&keep) i.value=keep; drawOpen(); return; }
+  if(sub==="op"){ main.innerHTML = warn+subs+`<div id="ov">${oppView(cur,d)}</div>`; return; }
   if(!d.dash){ main.innerHTML = warn+subs+'<div class="msg">אין עדיין dashboard_data.json. הרץ daily-alert פעם אחת</div>'; return; }
   const dash=d.dash, u=dash.unit, T=dash.tickers;
   const held=T.filter(t=>t.held), val=held.reduce((s,t)=>s+t.held.qty*t.price,0), cost=held.reduce((s,t)=>s+t.held.qty*t.held.avg,0);
