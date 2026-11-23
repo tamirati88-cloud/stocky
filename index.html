@@ -232,9 +232,9 @@ const ordUnit = m => pfUnit(m)==="usd"?"usd":(data[m]&&data[m].op&&data[m].op.un
 function ordRow(o,u,d,compact){
   const pr=priceOf(d,o.ticker), dist=pr?o.price/pr.p-1:null;
   const crossed=pr&&(o.side==="buy"?pr.p<=o.price:pr.p>=o.price), near=dist!=null&&!crossed&&Math.abs(dist)<=0.02;
-  const chip=crossed?'<span class="chip bad">הגיע לפקודה, בדוק אם בוצעה</span>':near?'<span class="chip warn">קרובה</span>':"";
+  const chip=crossed?'<span class="chip bad" style="white-space:normal">הגיע לפקודה. אם היא לא בוצעה, ייתכן שהצד (קנייה/מכירה) הוזן הפוך</span>':near?'<span class="chip warn">קרובה</span>':"";
   const cur=pr?`${fmt(pr.p,u)} <span class="mut">(${esc((pr.date||"").slice(5))})</span>`:"אין מחיר עדכני";
-  return `<div class="ordr${compact?"":" card"}"><div class="top"><span class="nm">${compact?"":esc((pr&&pr.name)||o.ticker)+" "}<span class="chip ${o.side==="buy"?"ok":"bad"}">${o.side==="buy"?"קנייה":"מכירה"}</span> ${chip}</span><button class="rm" data-odel="${esc(o.id)}" style="width:auto;padding:2px 10px">מחק</button></div>
+  return `<div class="ordr${compact?"":" card"}"><div class="top"><span class="nm">${compact?"":esc((pr&&pr.name)||o.ticker)+" "}<span class="chip ${o.side==="buy"?"ok":"bad"}">${o.side==="buy"?"קנייה":"מכירה"}</span> ${chip}</span><span>${crossed?`<button data-oflip="${esc(o.id)}" style="width:auto;padding:2px 10px">הפוך ל${o.side==="buy"?"מכירה":"קנייה"}</button> `:""}<button class="rm" data-odel="${esc(o.id)}" style="width:auto;padding:2px 10px">מחק</button></span></div>
    <div class="top mut"><span>פקודה ב-<bdi>${fmt(o.price,u)}</bdi>${o.qty?` · ${o.qty} יח׳`:""}</span><span>עכשיו ${cur}</span></div>
    <div class="top"><span class="mut">מרחק מהפקודה</span><b class="${dist==null?"":dist>=0?"up":"dn"}"><bdi>${dist==null?"–":pct(dist)}</bdi></b></div></div>`;
 }
@@ -272,11 +272,17 @@ $("#ofrm").onsubmit=async ev=>{
   if(!/^[A-Z0-9.\-^]{1,14}$/.test(t)) return msg.textContent="סימול לא תקין";
   if(!(pIn>0)) return msg.textContent="יש להזין מחיר";
   const o={id:Date.now().toString(36),ticker:t,side:oside,price:u==="agorot"?pIn/100:pIn,created:new Date().toISOString().slice(0,10)}; if(q>0) o.qty=q;
+  const pr=priceOf(data[m]||{},t), p=o.price;
+  if(pr&&((oside==="buy"&&p>pr.p)||(oside==="sell"&&p<pr.p))&&!confirm(`פקודת ${oside==="buy"?"קנייה":"מכירה"} ב-${fmt(p,u)} כשהמחיר הנוכחי ${fmt(pr.p,u)}: פקודה כזו הייתה מתבצעת מיד. ייתכן שבחרת קנייה במקום מכירה. לשמור בכל זאת?`)) return;
   $("#o_ok").disabled=true; msg.textContent="שומר…";
   try{ const nl=await changeOrders(m,l=>[...l,o]); data[m].od=nl; LS.set("d_"+m,data[m]); $("#odlg").close(); render(); }
   catch(e){ msg.textContent=e.message; }
   $("#o_ok").disabled=false;
 };
+async function flipOrder(m,id){
+  try{ const nl=await changeOrders(m,l=>l.map(o=>o.id===id?Object.assign({},o,{side:o.side==="buy"?"sell":"buy"}):o)); data[m].od=nl; LS.set("d_"+m,data[m]); render(); }
+  catch(e){ tmsg[m]=e.message; render(); }
+}
 async function delOrder(m,id){
   if(!confirm("למחוק את הפקודה?")) return;
   try{ const nl=await changeOrders(m,l=>l.filter(o=>o.id!==id)); data[m].od=nl; LS.set("d_"+m,data[m]); render(); }
@@ -573,6 +579,7 @@ document.addEventListener("click",ev=>{
   if(ev.target.closest("#o_new")){ openOrder(""); return; }
   if(ev.target.closest("#o_img")){ const f=$("#o_file"); f.value=""; f.onchange=()=>onOrdersFile(f.files[0]); f.click(); return; }
   const oa=ev.target.closest("[data-ord]"); if(oa){ openOrder(oa.dataset.ord); return; }
+  const of_=ev.target.closest("[data-oflip]"); if(of_){ flipOrder(cur,of_.dataset.oflip); return; }
   const od_=ev.target.closest("[data-odel]"); if(od_){ delOrder(cur,od_.dataset.odel); return; }
   if(ev.target.closest("#t_undo")){ undoTrade(cur); return; }
   const rm=ev.target.closest("[data-rm]"); if(rm){
