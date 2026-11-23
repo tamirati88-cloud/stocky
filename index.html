@@ -26,6 +26,9 @@ main{padding:12px;max-width:760px;margin:auto}
 .item{cursor:pointer}
 .top{display:flex;justify-content:space-between;gap:8px;align-items:baseline}
 .nm{font-weight:600;unicode-bidi:plaintext}
+.rb{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin:0 0 4px}
+.tile{display:flex;flex-direction:column;align-items:center;gap:2px;padding:8px 4px;border-radius:12px;line-height:1.2;font-size:12px}
+.tile b{font-size:20px}.tile.z{opacity:.45}.tile.on{background:var(--acc);border-color:var(--acc);color:#fff}
 .chip{display:inline-block;font-size:12px;border-radius:999px;padding:1px 8px;margin:2px 0 0 4px;border:1px solid var(--line);color:var(--mut)}
 .chip.ok{color:var(--ok);border-color:var(--ok)}.chip.bad{color:var(--bad);border-color:var(--bad)}.chip.warn{color:var(--warn);border-color:var(--warn)}
 .up{color:var(--ok)}.dn{color:var(--bad)}
@@ -473,12 +476,27 @@ function chart(cv, s, lv, u){
   g.fillStyle=col("--mut"); g.textAlign="center"; g.fillText(s.d[0],L+30,h-8); g.fillText(s.d[n-1],w-R-30,h-8);
   g.textAlign="left"; g.fillStyle="#d4a72c"; g.fillText("±1σ",L+2,T+6); g.fillStyle="#5b7cfa"; g.fillText("±2σ",L+34,T+6);
 }
+const ofil={};
+const TR={pos:["📈","חיובית"],side:["➖","צדדית"],neg:["📉","שלילית"]};
+const trendOf=t=>{ const v=t.slopes&&t.slopes["252"]; return v==null?"side":v>0.05?"pos":v<-0.05?"neg":"side"; };
+const isSell=t=>t.kind==="near_sell"||t.kind==="at_upper"||(t.pending.length>0&&t.pending[0]==="sell");
+const isBuy=t=>t.kind==="near_buy"||t.pending.some(k=>k==="entry"||k==="add"||k==="mid")||t.flags.some(f=>f[0]==="below");
+function rubric(items,sideF,rows,vk){
+  const f=ofil[vk]||"", cnt={}; items.forEach(t=>{ const k=sideF(t)+"|"+trendOf(t); cnt[k]=(cnt[k]||0)+1; });
+  return rows.map(([sd,lab])=>{
+    const tot=["pos","side","neg"].reduce((a,tr)=>a+(cnt[sd+"|"+tr]||0),0);
+    return `<div class="mut" style="margin:10px 4px 6px">${lab} · ${tot}</div><div class="rb">`+["pos","side","neg"].map(tr=>{ const k=sd+"|"+tr, n=cnt[k]||0;
+      return `<button data-rb="${vk}|${k}" class="tile${f===k?" on":""}${n?"":" z"}"><b>${n}</b><span>${TR[tr][0]} מגמה ${TR[tr][1]}</span></button>`; }).join("")+`</div>`;
+  }).join("")+(f?`<div style="margin:6px 4px"><button data-rb="${vk}|">✕ נקה סינון</button></div>`:"")+
+  '<div class="note">כניסה בקו התחתון כשהמגמה שלילית היא הסיכון העיקרי של האסטרטגיה: המחיר יכול להמשיך לרדת. מגמה = שיפוע הערוץ השנתי: מעל +5% חיובית, מתחת ל-5%- שלילית.</div>';
+}
 function item(t,u,intr,extra,open,line){
   const [kt,kc] = KIND[t.kind]||[null,null]; const chips=[];
   if(t.plain){ const [pt,pc]=POS[t.pos]||[]; if(pt) chips.push(`<span class="chip ${pc}">${pt}</span>`); }
   else if(t.pending.length) chips.push(`<span class="chip bad">איתות: ${t.pending.map(p=>PEND[p]||p).join(", ")}</span>`);
   else if(kt) chips.push(`<span class="chip ${kc}">${kt}</span>`);
-  t.flags.forEach(([k,tx])=>chips.push(`<span class="chip ${k==="below"?"ok":"bad"}">${k==="below"?"מתחת לתחתון":"מגמה שלילית"}</span>`));
+  t.flags.forEach(([k,tx])=>chips.push(`<span class="chip ${k==="below"?"ok":"bad"}">${k==="below"?"מתחת לתחתון":"שלילית בכל החלונות"}</span>`));
+  { const tr=trendOf(t), sv=t.slopes&&t.slopes["252"]; chips.push(`<span class="chip ${tr==="neg"?"bad":tr==="pos"?"ok":""}">${TR[tr][0]} מגמה ${TR[tr][1]}${sv==null?"":" "+pct(sv)}</span>`); }
   if(t.proxied) chips.push('<span class="chip">הערכה לפי מדד</span>');
   (intr||[]).forEach(a=>chips.push(`<span class="chip warn">⚡ ${a}</span>`));
   const h=t.held, pl=h?t.price/h.avg-1:null;
@@ -540,15 +558,18 @@ function oppView(m,d){
   ((d.op&&d.op.items)||[]).forEach(t=>map[t.ticker]=t);
   ((d.dash&&d.dash.tickers)||[]).forEach(t=>{ if(t.kind||t.pending.length) map[t.ticker]=t; else delete map[t.ticker]; });
   const all=Object.values(map);
-  const sellSide=t=>t.kind==="near_sell"||t.kind==="at_upper"||(t.pending.length&&t.pending[0]==="sell");
+  const sellSide=isSell;
   const sb=t=>t.s_buy||0, ss=t=>t.s_sell||0;
   const buy=all.filter(t=>!sellSide(t)).sort((a,b)=>(b.pending.length-a.pending.length)||(sb(b)-sb(a)));
   const sell=all.filter(sellSide).sort((a,b)=>(b.pending.length-a.pending.length)||(ss(b)-ss(a)));
   const bl=t=>(t.pending.length?"חצתה את הקו ואושר איתות · ":"")+`מעל הקו התחתון: <bdi>${pct(t.dist_lower)}</bdi> · חוזק ${Math.round(sb(t))}`;
   const sl=t=>(t.pending.length?"חצתה את הקו ואושר איתות · ":"")+`עד הקו העליון: <bdi>${pct(t.dist_upper)}</bdi> · חוזק ${Math.round(ss(t))}`;
   const info=d.op?`נסרקו ${d.op.scanned} ניירות · סריקה מ-${esc((d.op.updated||"").slice(0,10))}`:"אין עדיין סריקה שבועית. מוצגים ניירות מהבדיקה היומית";
-  return `<div class="mut" style="margin:2px 4px 8px">${info}</div>`+
-    `<div class="mut" style="margin:4px 4px 8px">🟢 קרובות לכניסה (קו תחתון) · ${buy.length}</div>`+(buy.length?buy.map(t=>item(t,u,null,newsFor(d,t.ticker),false,bl(t))).join(""):'<div class="msg">אין כרגע</div>')+
+  const vk="op"+m, f=ofil[vk]||"", rb=rubric(all,t=>sellSide(t)?"sell":"buy",[["buy","🟢 קרובות לכניסה (קו תחתון)"],["sell","🔴 קרובות ליציאה (קו עליון)"]],vk);
+  if(f){ const [fs,ft]=f.split("|"), arr=(fs==="sell"?sell:buy).filter(t=>trendOf(t)===ft), lf=fs==="sell"?sl:bl;
+    return `<div class="mut" style="margin:2px 4px 8px">${info}</div>`+rb+`<div class="mut" style="margin:14px 4px 8px">${fs==="sell"?"🔴 יציאה":"🟢 כניסה"} · מגמה ${TR[ft][1]} · ${arr.length}</div>`+(arr.length?arr.map(t=>item(t,u,null,newsFor(d,t.ticker),false,lf(t))).join(""):'<div class="msg">אין כרגע</div>'); }
+  return `<div class="mut" style="margin:2px 4px 8px">${info}</div>`+rb+
+    `<div class="mut" style="margin:14px 4px 8px">🟢 קרובות לכניסה (קו תחתון) · ${buy.length}</div>`+(buy.length?buy.map(t=>item(t,u,null,newsFor(d,t.ticker),false,bl(t))).join(""):'<div class="msg">אין כרגע</div>')+
     `<div class="mut" style="margin:14px 4px 8px">🔴 קרובות ליציאה (קו עליון) · ${sell.length}</div>`+(sell.length?sell.map(t=>item(t,u,null,newsFor(d,t.ticker),false,sl(t))).join(""):'<div class="msg">אין כרגע</div>')+
     '<div class="note">הרשימה מבוססת על הסריקה השבועית והבדיקה היומית. אין זו המלצה לקנות או למכור.</div>';
 }
@@ -586,10 +607,13 @@ function render(){
   const rank=t=>(t.pending.length?0:t.flags.length?1:t.kind?2:3);
   const sorted=[...held].sort((a,b)=>rank(a)-rank(b));
   const rest=T.filter(t=>!t.held&&(t.pending.length||t.kind)).sort((a,b)=>rank(a)-rank(b));
+  const sideP=t=>t.proxied?"est":isSell(t)?"sell":isBuy(t)?"buy":"mid", fk="pf"+cur, fv=ofil[fk]||"";
+  const rbp=held.length?rubric(held,sideP,[["buy","🟢 בקו התחתון או קרובות אליו"],["sell","🔴 בקו העליון או קרובות אליו"],["mid","⚪ בין הקווים"],["est","🟠 מחיר מוערך לפי מדד (סיווג לא אמין)"]],fk):"";
+  const shown=fv?sorted.filter(t=>sideP(t)+"|"+trendOf(t)===fv):sorted;
   main.innerHTML = warn+subs+
    tbar+(held.length?`<div class="card sum"><div class="mut">שווי<b>${fmt(val,u==="agorot"?"ils":u)}</b></div><div class="mut">עלות<b>${fmt(cost,u==="agorot"?"ils":u)}</b></div><div class="mut">רווח<b class="${sgn(val/cost-1)}">${pct(val/cost-1)}</b></div></div>`:"")+
-   (sorted.length?`<div class="mut" style="margin:4px 4px 8px">אחזקות (${sorted.length})</div>`+sorted.map(t=>item(t,u,al[t.ticker],newsFor(d,t.ticker))).join(""):"")+
-   (rest.length?`<div class="mut" style="margin:14px 4px 8px">ברשימת מעקב: קרובות לקו או עם איתות</div>`+rest.map(t=>item(t,u,al[t.ticker],newsFor(d,t.ticker))).join(""):"")+
+   rbp+(sorted.length?`<div class="mut" style="margin:14px 4px 8px">${fv?"מסונן":"אחזקות"} (${shown.length})</div>`+shown.map(t=>item(t,u,al[t.ticker],newsFor(d,t.ticker))).join(""):"")+
+   (rest.length&&!fv?`<div class="mut" style="margin:14px 4px 8px">ברשימת מעקב: קרובות לקו או עם איתות</div>`+rest.map(t=>item(t,u,al[t.ticker],newsFor(d,t.ticker))).join(""):"")+
    `<div class="note">הנתונים נטענים מהריפואים שלך ומתעדכנים אחרי הסגירה; התראות תוך-יומיות מופיעות עם ⚡.${held.some(t=>t.proxied)?" ערכים עם 'הערכה לפי מדד' אינם מחיר אמיתי.":""}</div>`;
 }
 document.addEventListener("click",ev=>{
@@ -597,6 +621,7 @@ document.addEventListener("click",ev=>{
   const sb=ev.target.closest("[data-s]"); if(sb){sub=sb.dataset.s; LS.set("sub",sub); render(); return;}
   if(ev.target.closest("#w_add")){ addWatch(cur); return; }
   if(ev.target.closest("#t_open")){ openTrade(); return; }
+  const rb_=ev.target.closest("[data-rb]"); if(rb_){ const [vk,sd,tr]=rb_.dataset.rb.split("|"), k=sd?sd+"|"+tr:""; ofil[vk]=(ofil[vk]===k)?"":k; render(); return; }
   if(ev.target.closest("#o_new")){ openOrder(""); return; }
   if(ev.target.closest("#o_img")){ const f=$("#o_file"); f.value=""; f.onchange=()=>onOrdersFile(f.files[0]); f.click(); return; }
   const oa=ev.target.closest("[data-ord]"); if(oa){ openOrder(oa.dataset.ord); return; }
