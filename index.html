@@ -75,7 +75,9 @@ input{width:100%;font:inherit;padding:8px;border-radius:8px;border:1px solid var
 </form></dialog>
 <dialog id="odlg"><form id="ofrm">
   <b>פקודה שהזנתי בברוקר</b>
-  <div class="row" style="margin:10px 0"><button type="button" id="o_buy" class="on">קנייה</button><button type="button" id="o_sell">מכירה</button></div>
+  <div class="row" style="margin:10px 0 6px"><button type="button" id="o_buy" class="on">קנייה</button><button type="button" id="o_sell">מכירה</button></div>
+  <div class="row" style="margin:0 0 10px"><button type="button" id="o_lim" class="on">לימיט</button><button type="button" id="o_stp">סטופ</button></div>
+  <div class="mut" id="o_hint" style="margin-bottom:8px"></div>
   <label>סימול או מספר נייר<input id="o_tk" list="o_list" autocomplete="off" autocapitalize="characters"></label><datalist id="o_list"></datalist>
   <label><span id="o_pl">מחיר הפקודה</span><input id="o_p" inputmode="decimal" autocomplete="off"></label>
   <label>כמות (לא חובה)<input id="o_q" inputmode="decimal" autocomplete="off"></label>
@@ -223,7 +225,10 @@ async function undoTrade(m){
   try{ const pf=await saveTrade(m,null,true); await afterTrade(m,pf,"↩️ העסקה האחרונה בוטלה."); }
   catch(e){ tmsg[m]=e.message; render(); }
 }
-let oside="buy";
+let oside="buy", otype="limit";
+// הפקודה מופעלת כשהמחיר חוצה אותה: לימיט קנייה ו-סטופ מכירה כשהמחיר יורד אליה; לימיט מכירה ו-סטופ קנייה כשהוא עולה אליה
+const trig=(o,p)=>((o.side==="buy")===((o.type||"limit")==="limit"))?p<=o.price:p>=o.price;
+const TYPE_HINT={"buy|limit":"קנייה בלימיט: תתבצע כשהמחיר ירד עד המחיר שהזנת או מתחתיו.","sell|limit":"מכירה בלימיט: תתבצע כשהמחיר יעלה עד המחיר שהזנת או מעליו.","sell|stop":"מכירה בסטופ: תופעל כשהמחיר ירד עד המחיר שהזנת, כהגנה מפני הפסד.","buy|stop":"קנייה בסטופ: תופעל כשהמחיר יעלה עד המחיר שהזנת, כקנייה בפריצה."};
 function priceOf(d,t){
   const pool=[...((d.dash&&d.dash.tickers)||[]),...Object.values((d.wd&&d.wd.items)||{}),...((d.op&&d.op.items)||[])];
   const x=pool.find(a=>a.ticker===t); return x?{p:x.price,date:x.date,name:x.name}:null;
@@ -231,10 +236,10 @@ function priceOf(d,t){
 const ordUnit = m => pfUnit(m)==="usd"?"usd":(data[m]&&data[m].op&&data[m].op.unit)||pfUnit(m);
 function ordRow(o,u,d,compact){
   const pr=priceOf(d,o.ticker), dist=pr?o.price/pr.p-1:null;
-  const crossed=pr&&(o.side==="buy"?pr.p<=o.price:pr.p>=o.price), near=dist!=null&&!crossed&&Math.abs(dist)<=0.02;
-  const chip=crossed?'<span class="chip bad" style="white-space:normal">הגיע לפקודה. אם היא לא בוצעה, ייתכן שהצד (קנייה/מכירה) הוזן הפוך</span>':near?'<span class="chip warn">קרובה</span>':"";
+  const crossed=pr&&trig(o,pr.p), near=dist!=null&&!crossed&&Math.abs(dist)<=0.02;
+  const chip=crossed?'<span class="chip bad" style="white-space:normal">${(o.type||"limit")==="stop"?"הגיע למחיר הסטופ":"הגיע לפקודה"}. אם היא לא ${(o.type||"limit")==="stop"?"הופעלה":"בוצעה"}, ייתכן שהצד או הסוג הוזנו הפוך</span>':near?'<span class="chip warn">קרובה</span>':"";
   const cur=pr?`${fmt(pr.p,u)} <span class="mut">(${esc((pr.date||"").slice(5))})</span>`:"אין מחיר עדכני";
-  return `<div class="ordr${compact?"":" card"}"><div class="top"><span class="nm">${compact?"":esc((pr&&pr.name)||o.ticker)+" "}<span class="chip ${o.side==="buy"?"ok":"bad"}">${o.side==="buy"?"קנייה":"מכירה"}</span> ${chip}</span><span>${crossed?`<button data-oflip="${esc(o.id)}" style="width:auto;padding:2px 10px">הפוך ל${o.side==="buy"?"מכירה":"קנייה"}</button> `:""}<button class="rm" data-odel="${esc(o.id)}" style="width:auto;padding:2px 10px">מחק</button></span></div>
+  return `<div class="ordr${compact?"":" card"}"><div class="top"><span class="nm">${compact?"":esc((pr&&pr.name)||o.ticker)+" "}<span class="chip ${o.side==="buy"?"ok":"bad"}">${o.side==="buy"?"קנייה":"מכירה"}</span> <span class="chip">${(o.type||"limit")==="stop"?"סטופ":"לימיט"}</span> ${chip}</span><span>${crossed?`<button data-oflip="${esc(o.id)}" style="width:auto;padding:2px 10px">הפוך ל${o.side==="buy"?"מכירה":"קנייה"}</button> <button data-otype="${esc(o.id)}" style="width:auto;padding:2px 10px">הפוך ל${(o.type||"limit")==="stop"?"לימיט":"סטופ"}</button> `:""}<button class="rm" data-odel="${esc(o.id)}" style="width:auto;padding:2px 10px">מחק</button></span></div>
    <div class="top mut"><span>פקודה ב-<bdi>${fmt(o.price,u)}</bdi>${o.qty?` · ${o.qty} יח׳`:""}</span><span>עכשיו ${cur}</span></div>
    <div class="top"><span class="mut">מרחק מהפקודה</span><b class="${dist==null?"":dist>=0?"up":"dn"}"><bdi>${dist==null?"–":pct(dist)}</bdi></b></div></div>`;
 }
@@ -253,9 +258,10 @@ function openOrder(t){
   const pool=[...((d.dash&&d.dash.tickers)||[]),...Object.values((d.wd&&d.wd.items)||{}),...((d.op&&d.op.items)||[])], seen={};
   $("#o_list").innerHTML=pool.filter(x=>!seen[x.ticker]&&(seen[x.ticker]=1)).map(x=>`<option value="${esc(x.ticker)}">${esc(x.name||"")}</option>`).join("");
   $("#o_pl").textContent="מחיר הפקודה ב"+(u==="agorot"?"אגורות (כמו בבורסה)":u==="ils"?"שקלים":"דולרים");
-  $("#o_tk").value=t||""; $("#o_p").value=""; $("#o_q").value=""; $("#o_msg").textContent=""; setOSide("buy"); $("#odlg").showModal();
+  $("#o_tk").value=t||""; $("#o_p").value=""; $("#o_q").value=""; $("#o_msg").textContent=""; otype="limit"; setOSide("buy"); $("#odlg").showModal();
 }
-function setOSide(x){ oside=x; $("#o_buy").classList.toggle("on",x==="buy"); $("#o_sell").classList.toggle("on",x==="sell"); }
+function setOSide(x){ oside=x; $("#o_buy").classList.toggle("on",x==="buy"); $("#o_sell").classList.toggle("on",x==="sell"); setOType(otype); }
+function setOType(x){ otype=x; $("#o_lim").classList.toggle("on",x==="limit"); $("#o_stp").classList.toggle("on",x==="stop"); $("#o_hint").textContent=TYPE_HINT[oside+"|"+x]||""; }
 async function changeOrders(m, fn){
   for(let i=0;i<3;i++){
     const R=await readJson(m,"orders.json",[]), list=Array.isArray(R.obj)?R.obj:[], nl=fn(list);
@@ -265,15 +271,15 @@ async function changeOrders(m, fn){
   }
   throw new Error("הרשימה השתנתה במקביל. נסה שוב");
 }
-$("#o_buy").onclick=()=>setOSide("buy"); $("#o_sell").onclick=()=>setOSide("sell"); $("#o_cancel").onclick=()=>$("#odlg").close();
+$("#o_buy").onclick=()=>setOSide("buy"); $("#o_sell").onclick=()=>setOSide("sell"); $("#o_lim").onclick=()=>setOType("limit"); $("#o_stp").onclick=()=>setOType("stop"); $("#o_cancel").onclick=()=>$("#odlg").close();
 $("#ofrm").onsubmit=async ev=>{
   ev.preventDefault(); const m=cur, u=ordUnit(m), msg=$("#o_msg"), t=normT($("#o_tk").value,m);
   const pIn=parseFloat($("#o_p").value.replace(",",".")), q=parseFloat($("#o_q").value.replace(",","."));
   if(!/^[A-Z0-9.\-^]{1,14}$/.test(t)) return msg.textContent="סימול לא תקין";
   if(!(pIn>0)) return msg.textContent="יש להזין מחיר";
-  const o={id:Date.now().toString(36),ticker:t,side:oside,price:u==="agorot"?pIn/100:pIn,created:new Date().toISOString().slice(0,10)}; if(q>0) o.qty=q;
+  const o={id:Date.now().toString(36),ticker:t,side:oside,type:otype,price:u==="agorot"?pIn/100:pIn,created:new Date().toISOString().slice(0,10)}; if(q>0) o.qty=q;
   const pr=priceOf(data[m]||{},t), p=o.price;
-  if(pr&&((oside==="buy"&&p>pr.p)||(oside==="sell"&&p<pr.p))&&!confirm(`פקודת ${oside==="buy"?"קנייה":"מכירה"} ב-${fmt(p,u)} כשהמחיר הנוכחי ${fmt(pr.p,u)}: פקודה כזו הייתה מתבצעת מיד. ייתכן שבחרת קנייה במקום מכירה. לשמור בכל זאת?`)) return;
+  if(pr&&trig(o,pr.p)&&!confirm(`${oside==="buy"?"קנייה":"מכירה"} ב${otype==="stop"?"סטופ":"לימיט"} ב-${fmt(p,u)} כשהמחיר הנוכחי ${fmt(pr.p,u)}: הפקודה הייתה ${otype==="stop"?"מופעלת":"מתבצעת"} מיד. ייתכן שהצד או הסוג שנבחרו הפוכים. לשמור בכל זאת?`)) return;
   $("#o_ok").disabled=true; msg.textContent="שומר…";
   try{ const nl=await changeOrders(m,l=>[...l,o]); data[m].od=nl; LS.set("d_"+m,data[m]); $("#odlg").close(); render(); }
   catch(e){ msg.textContent=e.message; }
@@ -281,6 +287,10 @@ $("#ofrm").onsubmit=async ev=>{
 };
 async function flipOrder(m,id){
   try{ const nl=await changeOrders(m,l=>l.map(o=>o.id===id?Object.assign({},o,{side:o.side==="buy"?"sell":"buy"}):o)); data[m].od=nl; LS.set("d_"+m,data[m]); render(); }
+  catch(e){ tmsg[m]=e.message; render(); }
+}
+async function flipType(m,id){
+  try{ const nl=await changeOrders(m,l=>l.map(o=>o.id===id?Object.assign({},o,{type:(o.type||"limit")==="stop"?"limit":"stop"}):o)); data[m].od=nl; LS.set("d_"+m,data[m]); render(); }
   catch(e){ tmsg[m]=e.message; render(); }
 }
 async function delOrder(m,id){
@@ -306,7 +316,7 @@ function shrink(file){ return new Promise((res,rej)=>{
 async function readOrdersImage(file){
   if(!cfg.akey) throw new Error("חסר מפתח Anthropic API. הוסף אותו בהגדרות החיבור (⚙)");
   const data=await shrink(file);
-  const prompt="This is a screenshot of OPEN (pending, not yet executed) buy/sell orders from a stock broker app (for example Mitav Trade in Hebrew, or Interactive Brokers). Extract every open order. Return ONLY a JSON array, no other text. Each item: {\"name\": security name as written, \"number\": Israeli security number if visible else null, \"symbol\": ticker symbol if visible else null, \"side\": \"buy\" or \"sell\", \"price\": the limit price as displayed, a number only, \"qty\": quantity as a number or null}. Use null for anything not visible. Do not invent orders. If there are no open orders return [].";
+  const prompt="This is a screenshot of OPEN (pending, not yet executed) buy/sell orders from a stock broker app (for example Mitav Trade in Hebrew, or Interactive Brokers). Extract every open order. Return ONLY a JSON array, no other text. Each item: {\"type\": \"stop\" if it is a stop / stop-loss / trigger order (Hebrew: סטופ, עצור הפסד, הוראת סטופ) otherwise \"limit\", \"name\": security name as written, \"number\": Israeli security number if visible else null, \"symbol\": ticker symbol if visible else null, \"side\": \"buy\" or \"sell\", \"price\": the limit price as displayed, a number only, \"qty\": quantity as a number or null}. Use null for anything not visible. Do not invent orders. If there are no open orders return [].";
   const r=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"x-api-key":cfg.akey,"anthropic-version":"2023-06-01","content-type":"application/json","anthropic-dangerous-direct-browser-access":"true"},
     body:JSON.stringify({model:"claude-sonnet-5-5",max_tokens:2000,messages:[{role:"user",content:[{type:"image",source:{type:"base64",media_type:"image/jpeg",data}},{type:"text",text:prompt}]}]})});
   if(!r.ok){ let e=""; try{ e=(await r.json()).error.message }catch(_){} throw new Error(r.status===401?"מפתח ה-API לא תקין":"שגיאה בקריאת התמונה ("+r.status+") "+e); }
@@ -315,9 +325,9 @@ async function readOrdersImage(file){
 }
 let importRows=[];
 function showImport(m,d,rows){
-  const u=ordUnit(m); importRows=rows.map(r=>({on:true,ticker:matchTicker(m,d,r),side:r.side==="sell"?"sell":"buy",price:r.price,qty:r.qty,name:r.name}));
+  const u=ordUnit(m); importRows=rows.map(r=>({on:true,ticker:matchTicker(m,d,r),side:r.side==="sell"?"sell":"buy",type:r.type==="stop"?"stop":"limit",price:r.price,qty:r.qty,name:r.name}));
   $("#i_rows").innerHTML=importRows.map((r,i)=>`<div class="card" style="margin:6px 0"><label style="display:flex;gap:8px;align-items:center"><input type="checkbox" data-i="${i}" data-f="on" checked style="width:auto;margin:0"> <span class="mut">${esc(r.name||"")}</span></label>
-   <div class="add" style="margin-top:6px"><input data-i="${i}" data-f="ticker" value="${esc(r.ticker)}" placeholder="סימול" style="max-width:34%"><select data-i="${i}" data-f="side"><option value="buy"${r.side==="buy"?" selected":""}>קנייה</option><option value="sell"${r.side==="sell"?" selected":""}>מכירה</option></select></div>
+   <div class="add" style="margin-top:6px"><input data-i="${i}" data-f="ticker" value="${esc(r.ticker)}" placeholder="סימול" style="max-width:34%"><select data-i="${i}" data-f="side"><option value="buy"${r.side==="buy"?" selected":""}>קנייה</option><option value="sell"${r.side==="sell"?" selected":""}>מכירה</option></select><select data-i="${i}" data-f="type"><option value="limit"${r.type==="limit"?" selected":""}>לימיט</option><option value="stop"${r.type==="stop"?" selected":""}>סטופ</option></select></div>
    <div class="add" style="margin-top:6px"><input data-i="${i}" data-f="price" value="${r.price==null?"":esc(r.price)}" inputmode="decimal" placeholder="מחיר (${u==="agorot"?"אג׳":u==="ils"?"₪":"$"})"><input data-i="${i}" data-f="qty" value="${r.qty==null?"":esc(r.qty)}" inputmode="decimal" placeholder="כמות"></div></div>`).join("")||'<div class="msg">לא זוהו פקודות</div>';
   $("#i_msg").textContent=""; $("#idlg").showModal();
 }
@@ -329,10 +339,10 @@ $("#ifrm").onsubmit=async ev=>{
   for(const r of importRows){ if(!r.on) continue; const t=normT(String(r.ticker||""),m), p=parseFloat(String(r.price).replace(",",".")), q=parseFloat(String(r.qty||"").replace(",","."));
     if(!/^[A-Z0-9.\-^]{1,14}$/.test(t)) return msg.textContent="יש שורה בלי סימול תקין. השלם אותו או בטל את הסימון";
     if(!(p>0)) return msg.textContent="יש שורה בלי מחיר תקין";
-    const o={id:Date.now().toString(36)+Math.random().toString(36).slice(2,5),ticker:t,side:r.side,price:u==="agorot"?p/100:p,created:new Date().toISOString().slice(0,10)}; if(q>0) o.qty=q; add.push(o); }
+    const o={id:Date.now().toString(36)+Math.random().toString(36).slice(2,5),ticker:t,side:r.side,type:r.type==="stop"?"stop":"limit",price:u==="agorot"?p/100:p,created:new Date().toISOString().slice(0,10)}; if(q>0) o.qty=q; add.push(o); }
   if(!add.length) return msg.textContent="לא נבחרו שורות";
   $("#i_ok").disabled=true; msg.textContent="שומר…";
-  try{ const nl=await changeOrders(m,l=>[...l,...add.filter(o=>!l.some(x=>x.ticker===o.ticker&&x.side===o.side&&Math.abs(x.price-o.price)<1e-9))]); data[m].od=nl; LS.set("d_"+m,data[m]); $("#idlg").close(); tmsg[m]="נשמרו "+add.length+" פקודות."; render(); }
+  try{ const nl=await changeOrders(m,l=>[...l,...add.filter(o=>!l.some(x=>x.ticker===o.ticker&&x.side===o.side&&(x.type||"limit")===o.type&&Math.abs(x.price-o.price)<1e-9))]); data[m].od=nl; LS.set("d_"+m,data[m]); $("#idlg").close(); tmsg[m]="נשמרו "+add.length+" פקודות."; render(); }
   catch(e){ msg.textContent=e.message; }
   $("#i_ok").disabled=false;
 };
@@ -579,6 +589,7 @@ document.addEventListener("click",ev=>{
   if(ev.target.closest("#o_new")){ openOrder(""); return; }
   if(ev.target.closest("#o_img")){ const f=$("#o_file"); f.value=""; f.onchange=()=>onOrdersFile(f.files[0]); f.click(); return; }
   const oa=ev.target.closest("[data-ord]"); if(oa){ openOrder(oa.dataset.ord); return; }
+  const ot_=ev.target.closest("[data-otype]"); if(ot_){ flipType(cur,ot_.dataset.otype); return; }
   const of_=ev.target.closest("[data-oflip]"); if(of_){ flipOrder(cur,of_.dataset.oflip); return; }
   const od_=ev.target.closest("[data-odel]"); if(od_){ delOrder(cur,od_.dataset.odel); return; }
   if(ev.target.closest("#t_undo")){ undoTrade(cur); return; }
