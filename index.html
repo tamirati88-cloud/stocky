@@ -64,7 +64,8 @@ input{width:100%;font:inherit;padding:8px;border-radius:8px;border:1px solid var
   <label>ריפו אמריקאי<input id="f_us" autocomplete="off"></label>
   <label>טוקן (fine-grained, Contents: Read-only)<input id="f_tok" type="password" autocomplete="off"></label>
   <label>מפתח Anthropic API (לא חובה, רק לקריאת פקודות מתמונה; נשמר בדפדפן הזה בלבד)<input id="f_ak" type="password" autocomplete="off"></label>
-  <div class="row"><button class="on" id="save" type="submit">שמירה</button><button type="button" id="cancel">סגירה</button></div>
+  <div class="row"><button class="on" id="save" type="submit">שמירה</button><button type="button" id="cancel">סגירה</button><button type="button" id="hard">🔄 רענון מלא</button></div>
+  <div class="mut" id="verl" style="margin-top:8px"></div>
 </form></dialog>
 <dialog id="tdlg"><form id="tfrm">
   <b>רישום עסקה</b>
@@ -96,6 +97,7 @@ input{width:100%;font:inherit;padding:8px;border-radius:8px;border:1px solid var
 </form></dialog>
 <script>
 "use strict";
+const VER="v16";
 const LS = {get(k,d){try{const v=localStorage.getItem(k);return v===null?d:JSON.parse(v)}catch(e){return d}},
             set(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}};
 const cfg = Object.assign({owner:"tamirati88-cloud",il:"StockIL",us:"stockyAlerts",token:"",akey:""}, LS.get("cfg",{}));
@@ -588,7 +590,7 @@ function render(){
   const keep=($("#w_in")||{}).value||"";
   const subs=`<div class="sub"><button data-s="pf" class="${sub==="pf"?"on":""}">התיק שלי</button><button data-s="wl" class="${sub==="wl"?"on":""}">מעקב (${(d.wl||[]).length})</button><button data-s="op" class="${sub==="op"?"on":""}">קרובות לקו</button><button data-s="mk" class="${sub==="mk"?"on":""}">מדדים</button><button data-s="od" class="${sub==="od"?"on":""}">פקודות (${(d.od||[]).length})</button><button data-s="sm" class="${sub==="sm"?"on":""}">סיכום</button></div>`;
   const stamp=(d.dash&&d.dash.updated)||(d.wd&&d.wd.updated)||"";
-  $("#upd").textContent = stamp?"עודכן "+stamp.slice(5,16).replace("T"," "):"";
+  $("#upd").textContent = (stamp?"עודכן "+stamp.slice(5,16).replace("T"," ")+" · ":"")+VER;
   const warn=e?`<div class="card mut">⚠ ${esc(e)} (מוצגים נתונים שמורים)</div>`:"";
   if(sub==="wl"){ main.innerHTML = warn+subs+`<div id="wv">${watchView(cur,d)}</div>`; const i=$("#w_in"); if(i&&keep) i.value=keep; drawOpen(); return; }
   if(sub==="sm"){ main.innerHTML = warn+subs+`<div id="smv">${sumView(cur,d)}</div>`; const sl=$("#s_mon"); if(sl) sl.onchange=()=>{ smon[cur]=sl.value; render(); }; return; }
@@ -636,7 +638,8 @@ document.addEventListener("click",ev=>{
   const it=ev.target.closest(".item"); if(it){ it.classList.toggle("open"); if(it.classList.contains("open")) drawOpen(); }
 });
 document.addEventListener("keydown",ev=>{ if(ev.key==="Enter"&&ev.target.id==="w_in") addWatch(cur); });
-function openCfg(){ $("#f_owner").value=cfg.owner; $("#f_il").value=cfg.il; $("#f_us").value=cfg.us; $("#f_tok").value=cfg.token; $("#f_ak").value=cfg.akey||""; $("#dlg").showModal(); }
+function openCfg(){ $("#f_owner").value=cfg.owner; $("#f_il").value=cfg.il; $("#f_us").value=cfg.us; $("#f_tok").value=cfg.token; $("#f_ak").value=cfg.akey||""; $("#verl").textContent="גרסת הלוח בדפדפן הזה: "+VER; $("#dlg").showModal(); }
+$("#hard").onclick=async()=>{ try{ (await navigator.serviceWorker.getRegistrations()).forEach(r=>r.unregister()); (await caches.keys()).forEach(k=>caches.delete(k)); }catch(e){} location.href=location.pathname+"?r="+Date.now(); };
 $("#st").onclick=openCfg; $("#cancel").onclick=()=>$("#dlg").close();
 $("#frm").onsubmit=()=>{ Object.assign(cfg,{owner:$("#f_owner").value.trim(),il:$("#f_il").value.trim(),us:$("#f_us").value.trim(),token:$("#f_tok").value.trim(),akey:$("#f_ak").value.trim()}); LS.set("cfg",cfg); data={}; errs={}; load(cur,true).then(render); };
 $("#rf").onclick=()=>{ $("#main").innerHTML='<div class="msg">טוען…</div>'; load(cur,true).then(render); };
