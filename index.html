@@ -60,6 +60,7 @@ input{width:100%;font:inherit;padding:8px;border-radius:8px;border:1px solid var
   <label>ריפו ישראלי<input id="f_il" autocomplete="off"></label>
   <label>ריפו אמריקאי<input id="f_us" autocomplete="off"></label>
   <label>טוקן (fine-grained, Contents: Read-only)<input id="f_tok" type="password" autocomplete="off"></label>
+  <label>מפתח Anthropic API (לא חובה, רק לקריאת פקודות מתמונה; נשמר בדפדפן הזה בלבד)<input id="f_ak" type="password" autocomplete="off"></label>
   <div class="row"><button class="on" id="save" type="submit">שמירה</button><button type="button" id="cancel">סגירה</button></div>
 </form></dialog>
 <dialog id="tdlg"><form id="tfrm">
@@ -81,11 +82,18 @@ input{width:100%;font:inherit;padding:8px;border-radius:8px;border:1px solid var
   <div class="mut" id="o_msg" style="margin:8px 0"></div>
   <div class="row"><button class="on" type="submit" id="o_ok">שמירה</button><button type="button" id="o_cancel">סגירה</button></div>
 </form></dialog>
+<dialog id="idlg"><form id="ifrm">
+  <b>פקודות שזוהו בתמונה</b>
+  <p class="mut">בדוק כל שורה לפני השמירה: הזיהוי אוטומטי ועלול לטעות. אפשר לתקן סימול, מחיר וכמות, ולבטל סימון של שורה.</p>
+  <div id="i_rows"></div>
+  <div class="mut" id="i_msg" style="margin:8px 0"></div>
+  <div class="row"><button class="on" type="submit" id="i_ok">שמירת הנבחרות</button><button type="button" id="i_cancel">סגירה</button></div>
+</form></dialog>
 <script>
 "use strict";
 const LS = {get(k,d){try{const v=localStorage.getItem(k);return v===null?d:JSON.parse(v)}catch(e){return d}},
             set(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}};
-const cfg = Object.assign({owner:"tamirati88-cloud",il:"StockIL",us:"stockyAlerts",token:""}, LS.get("cfg",{}));
+const cfg = Object.assign({owner:"tamirati88-cloud",il:"StockIL",us:"stockyAlerts",token:"",akey:""}, LS.get("cfg",{}));
 const MARKETS = [["il","ישראל"],["us","ארה״ב"]];
 let cur = LS.get("tab","il"), sub = LS.get("sub","pf"), data = {}, errs = {}, msgs = {}, polls = {};
 const $ = s => document.querySelector(s);
@@ -237,7 +245,7 @@ function ordHtml(m,t){
 function odView(m,d){
   const u=ordUnit(m), os=[...(d.od||[])].sort((a,b)=>{const pa=priceOf(d,a.ticker),pb=priceOf(d,b.ticker);
     const da=pa?Math.abs(a.price/pa.p-1):9, db=pb?Math.abs(b.price/pb.p-1):9; return da-db;});
-  return `<div class="card"><div class="row"><button class="on" id="o_new">➕ פקודה חדשה</button></div><div class="note">המערכת לא מתחברת לברוקר. הפקודות נשמרות כאן כתזכורת, והמרחק מחושב מהמחיר של הסגירה האחרונה.</div></div>`+
+  return (tmsg[m]?`<div class="card mut">${esc(tmsg[m])}</div>`:"")+`<div class="card"><div class="row"><button class="on" id="o_new">➕ פקודה חדשה</button><button id="o_img">📷 הוספה מתמונה</button></div><input type="file" id="o_file" accept="image/*" hidden><div class="note">המערכת לא מתחברת לברוקר. הפקודות נשמרות כאן כתזכורת, והמרחק מחושב מהמחיר של הסגירה האחרונה.</div></div>`+
     (os.length?`<div class="mut" style="margin:4px 4px 8px">מסודר לפי הקרבה למחיר העדכני · ${os.length}</div>`+os.map(o=>ordRow(o,u,d,false)).join(""):'<div class="msg">עוד לא הוספת פקודות</div>');
 }
 function openOrder(t){
@@ -274,6 +282,111 @@ async function delOrder(m,id){
   try{ const nl=await changeOrders(m,l=>l.filter(o=>o.id!==id)); data[m].od=nl; LS.set("d_"+m,data[m]); render(); }
   catch(e){ tmsg[m]=e.message; render(); }
 }
+function poolOf(d){ return [...((d.dash&&d.dash.tickers)||[]),...Object.values((d.wd&&d.wd.items)||{}),...((d.op&&d.op.items)||[])]; }
+function matchTicker(m,d,r){
+  const pool=poolOf(d), nrm=x=>String(x||"").replace(/[\s"'׳״\-()]/g,"").toLowerCase();
+  if(r.symbol){ const t=normT(String(r.symbol),m); if(pool.some(x=>x.ticker===t)) return t; }
+  if(r.number){ const n=String(r.number).replace(/\D/g,""); const h=pool.find(x=>x.ticker.split(".")[0]===n); if(h) return h.ticker; }
+  if(r.name){ const q=nrm(r.name); const h=pool.find(x=>x.name&&(nrm(x.name)===q||(q.length>3&&(nrm(x.name).includes(q)||q.includes(nrm(x.name)))))); if(h) return h.ticker; }
+  if(r.symbol) return normT(String(r.symbol),m);
+  if(r.number&&m==="il") return String(r.number).replace(/\D/g,"")+".TA";
+  return "";
+}
+function shrink(file){ return new Promise((res,rej)=>{
+  const im=new Image(), u=URL.createObjectURL(file);
+  im.onload=()=>{ const k=Math.min(1,1600/Math.max(im.width,im.height)), c=document.createElement("canvas"); c.width=Math.round(im.width*k); c.height=Math.round(im.height*k);
+    c.getContext("2d").drawImage(im,0,0,c.width,c.height); URL.revokeObjectURL(u); res(c.toDataURL("image/jpeg",0.85).split(",")[1]); };
+  im.onerror=()=>rej(new Error("לא ניתן לקרוא את התמונה")); im.src=u; }); }
+async function readOrdersImage(file){
+  if(!cfg.akey) throw new Error("חסר מפתח Anthropic API. הוסף אותו בהגדרות החיבור (⚙)");
+  const data=await shrink(file);
+  const prompt="This is a screenshot of OPEN (pending, not yet executed) buy/sell orders from a stock broker app (for example Mitav Trade in Hebrew, or Interactive Brokers). Extract every open order. Return ONLY a JSON array, no other text. Each item: {\"name\": security name as written, \"number\": Israeli security number if visible else null, \"symbol\": ticker symbol if visible else null, \"side\": \"buy\" or \"sell\", \"price\": the limit price as displayed, a number only, \"qty\": quantity as a number or null}. Use null for anything not visible. Do not invent orders. If there are no open orders return [].";
+  const r=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"x-api-key":cfg.akey,"anthropic-version":"2023-06-01","content-type":"application/json","anthropic-dangerous-direct-browser-access":"true"},
+    body:JSON.stringify({model:"claude-sonnet-5-5",max_tokens:2000,messages:[{role:"user",content:[{type:"image",source:{type:"base64",media_type:"image/jpeg",data}},{type:"text",text:prompt}]}]})});
+  if(!r.ok){ let e=""; try{ e=(await r.json()).error.message }catch(_){} throw new Error(r.status===401?"מפתח ה-API לא תקין":"שגיאה בקריאת התמונה ("+r.status+") "+e); }
+  const txt=((await r.json()).content||[]).map(x=>x.text||"").join(""); const a=txt.indexOf("["), b=txt.lastIndexOf("]");
+  if(a<0||b<0) throw new Error("לא זוהו פקודות בתמונה"); return JSON.parse(txt.slice(a,b+1));
+}
+let importRows=[];
+function showImport(m,d,rows){
+  const u=ordUnit(m); importRows=rows.map(r=>({on:true,ticker:matchTicker(m,d,r),side:r.side==="sell"?"sell":"buy",price:r.price,qty:r.qty,name:r.name}));
+  $("#i_rows").innerHTML=importRows.map((r,i)=>`<div class="card" style="margin:6px 0"><label style="display:flex;gap:8px;align-items:center"><input type="checkbox" data-i="${i}" data-f="on" checked style="width:auto;margin:0"> <span class="mut">${esc(r.name||"")}</span></label>
+   <div class="add" style="margin-top:6px"><input data-i="${i}" data-f="ticker" value="${esc(r.ticker)}" placeholder="סימול" style="max-width:34%"><select data-i="${i}" data-f="side"><option value="buy"${r.side==="buy"?" selected":""}>קנייה</option><option value="sell"${r.side==="sell"?" selected":""}>מכירה</option></select></div>
+   <div class="add" style="margin-top:6px"><input data-i="${i}" data-f="price" value="${r.price==null?"":esc(r.price)}" inputmode="decimal" placeholder="מחיר (${u==="agorot"?"אג׳":u==="ils"?"₪":"$"})"><input data-i="${i}" data-f="qty" value="${r.qty==null?"":esc(r.qty)}" inputmode="decimal" placeholder="כמות"></div></div>`).join("")||'<div class="msg">לא זוהו פקודות</div>';
+  $("#i_msg").textContent=""; $("#idlg").showModal();
+}
+$("#i_rows").addEventListener("input",ev=>{ const e=ev.target, r=importRows[+e.dataset.i]; if(!r) return; r[e.dataset.f]=e.type==="checkbox"?e.checked:e.value; });
+$("#i_rows").addEventListener("change",ev=>{ const e=ev.target, r=importRows[+e.dataset.i]; if(!r) return; r[e.dataset.f]=e.type==="checkbox"?e.checked:e.value; });
+$("#i_cancel").onclick=()=>$("#idlg").close();
+$("#ifrm").onsubmit=async ev=>{
+  ev.preventDefault(); const m=cur, u=ordUnit(m), msg=$("#i_msg"), add=[];
+  for(const r of importRows){ if(!r.on) continue; const t=normT(String(r.ticker||""),m), p=parseFloat(String(r.price).replace(",",".")), q=parseFloat(String(r.qty||"").replace(",","."));
+    if(!/^[A-Z0-9.\-^]{1,14}$/.test(t)) return msg.textContent="יש שורה בלי סימול תקין. השלם אותו או בטל את הסימון";
+    if(!(p>0)) return msg.textContent="יש שורה בלי מחיר תקין";
+    const o={id:Date.now().toString(36)+Math.random().toString(36).slice(2,5),ticker:t,side:r.side,price:u==="agorot"?p/100:p,created:new Date().toISOString().slice(0,10)}; if(q>0) o.qty=q; add.push(o); }
+  if(!add.length) return msg.textContent="לא נבחרו שורות";
+  $("#i_ok").disabled=true; msg.textContent="שומר…";
+  try{ const nl=await changeOrders(m,l=>[...l,...add.filter(o=>!l.some(x=>x.ticker===o.ticker&&x.side===o.side&&Math.abs(x.price-o.price)<1e-9))]); data[m].od=nl; LS.set("d_"+m,data[m]); $("#idlg").close(); tmsg[m]="נשמרו "+add.length+" פקודות."; render(); }
+  catch(e){ msg.textContent=e.message; }
+  $("#i_ok").disabled=false;
+};
+async function onOrdersFile(f){
+  const m=cur, d=data[m]; if(!f||!d) return; tmsg[m]="קורא את התמונה…"; render();
+  try{ const rows=await readOrdersImage(f); tmsg[m]=""; render(); showImport(m,d,rows); }
+  catch(e){ tmsg[m]=e.message; render(); }
+}
+// ---- סיכום חודשי
+const smon={};
+function zAt(t,date){
+  const s=t&&t.series; if(!s) return null; let i=-1; for(let k=0;k<s.d.length;k++){ if(s.d[k]<=date) i=k; else break; } if(i<0) return null;
+  const p=Math.log(s.p[i]), mid=Math.log(s.mid[i]), up=Math.log(s.up[i]); if(up===mid) return null;
+  return {z:1.5*(p-mid)/(up-mid), lo:s.lo[i], up:s.up[i], p:s.p[i]};
+}
+function sumView(m,d){
+  const u0=pfUnit(m), u=u0==="agorot"?"ils":u0, log=Array.isArray(d.tl)?d.tl:[], ph=d.ph||[], pool=poolOf(d), byT={}; pool.forEach(t=>{ if(!byT[t.ticker]||t.series) byT[t.ticker]=t; });
+  const nowM=new Date().toISOString().slice(0,7), months=[...new Set([nowM,...log.map(e=>e.ts.slice(0,7)),...ph.map(h=>h.d.slice(0,7))])].sort().reverse();
+  const mon=smon[m]&&months.includes(smon[m])?smon[m]:months[0], money=x=>fmt(x,u), sg=x=>`<b class="${x>=0?"up":"dn"}"><bdi>${x>=0?"+":""}${fmt(x,u)}</bdi></b>`;
+  const tr=log.filter(e=>e.ts.slice(0,7)===mon), sells=tr.filter(e=>e.side==="sell"), real=sells.reduce((s,e)=>s+(e.realized||0),0), wins=sells.filter(e=>e.realized>0).length;
+  const held=((d.dash&&d.dash.tickers)||[]).filter(t=>t.held), unreal=held.reduce((s,t)=>s+(t.price-t.held.avg)*t.held.qty,0), val=held.reduce((s,t)=>s+t.price*t.held.qty,0);
+  const inM=ph.filter(h=>h.d.slice(0,7)===mon), prev=ph.filter(h=>h.d.slice(0,7)<mon).slice(-1)[0], v0=prev||inM[0], v1=inM[inM.length-1];
+  let perf="";
+  if(v0&&v1&&v0.d!==v1.d){ const flow=tr.reduce((s,e)=>s+(e.side==="buy"?1:-1)*e.qty*e.price,0), pnl=v1.v-v0.v-flow;
+    perf=`<div class="top"><span class="mut">רווח/הפסד החודש (שינוי בשווי, בניכוי קניות ומכירות)</span>${sg(pnl)}</div><div class="top mut"><span>שווי ${esc(v0.d.slice(5))} → ${esc(v1.d.slice(5))}</span><span><bdi>${money(v0.v)} → ${money(v1.v)}</bdi></span></div>${(v0.est||v1.est)?`<div class="note">בחישוב ${Math.max(v0.est,v1.est)} ניירות עם מחיר מוערך לפי מדד, ולכן הסכום מקורב.</div>`:""}`;
+  } else perf='<div class="mut" style="margin-top:6px">שינוי בשווי התיק יוצג אחרי שיצטברו לפחות שני ימי מדידה בחודש (הנתונים נאספים בכל daily-alert).</div>';
+  let h=`<div class="card"><div class="top"><b>סיכום חודשי</b><select id="s_mon">${months.map(x=>`<option value="${x}"${x===mon?" selected":""}>${x}</option>`).join("")}</select></div>
+    <div class="top" style="margin-top:10px"><span class="mut">רווח ממומש (עסקאות שנרשמו)</span>${sg(real)}</div>
+    <div class="top mut"><span>${sells.length} מכירות · ${wins} ברווח · ${sells.length-wins} בהפסד</span><span>${tr.length-sells.length} קניות</span></div>
+    ${perf}
+    <div class="top" style="margin-top:10px"><span class="mut">רווח לא ממומש כיום (כל האחזקות)</span>${sg(unreal)}</div>
+    <div class="top mut"><span>שווי אחזקות</span><span><bdi>${money(val)}</bdi></span></div>${held.some(t=>t.proxied)?`<div class="note">${held.filter(t=>t.proxied).length} ניירות מוצגים עם מחיר מוערך לפי מדד, ולכן הרווח הלא ממומש והשווי מקורבים.</div>`:""}</div>`;
+  h+='<div class="mut" style="margin:14px 4px 8px">עסקאות החודש מול הערוץ</div>';
+  const notes=[];
+  if(!tr.length) h+='<div class="msg">לא נרשמו עסקאות בחודש הזה. עסקאות שנרשמות דרך "➕ רישום עסקה" או בבוט מופיעות כאן.</div>';
+  tr.slice().reverse().forEach(e=>{
+    const t=byT[e.ticker], date=e.ts.slice(0,10), c=zAt(t,date), nowP=t?t.price:null, mv=nowP?nowP/e.price-1:null; let v="", cls="";
+    if(c){ const z=c.z;
+      if(e.side==="buy"){ if(z<=-1.3){v="✅ נקנה ליד הקו התחתון";cls="ok"} else if(z<=-0.6){v="🟡 נקנה בחצי התחתון של הערוץ";cls="warn"} else {v=`⚠ נקנה באמצע/מעל הערוץ (z ${z.toFixed(1)}). האסטרטגיה הייתה ממתינה לקו התחתון, כ-${fmt(c.lo,u0)} (${pct(c.lo/e.price-1)})`;cls="bad"; notes.push(`${e.ticker}: קנייה ב-${date} במחיר גבוה מהקו התחתון`);} }
+      else { if(z>=1.3){v="✅ נמכר ליד הקו העליון";cls="ok"} else if(z>=0.6){v="🟡 נמכר בחצי העליון של הערוץ";cls="warn"} else {v=`⚠ נמכר לפני הקו העליון (z ${z.toFixed(1)}). האסטרטגיה מוכרת חצי ב-${fmt(c.up,u0)} (${pct(c.up/e.price-1)})`;cls="bad"; notes.push(`${e.ticker}: מכירה ב-${date} לפני הקו העליון`);} }
+    } else v='<span class="mut">אין נתוני ערוץ לנייר הזה בתאריך העסקה</span>';
+    h+=`<div class="card"><div class="top"><span class="nm">${e.side==="buy"?"🟢":"🔴"} ${esc((t&&t.name)||e.ticker)}</span><span class="mut">${esc(date.slice(5))}</span></div>
+      <div class="top mut"><span>${e.qty} יח׳ ב-<bdi>${fmt(e.price,u0)}</bdi></span>${e.side==="sell"?`<span>${sg(e.realized||0)}</span>`:""}</div>
+      ${v?`<div class="${cls?"chip "+cls:""}" style="margin-top:6px;white-space:normal">${v}</div>`:""}
+      ${mv!=null?`<div class="mut" style="margin-top:6px">מאז: המחיר ${mv>=0?"גבוה":"נמוך"} ב-<bdi>${(Math.abs(mv)*100).toFixed(1)}%</bdi> מהמחיר בעסקה</div>`:""}</div>`;
+  });
+  // מצב נוכחי: מה האסטרטגיה מציעה כיום
+  const ideas=[]; const tot=val||1;
+  held.forEach(t=>{ const nm=t.name||t.ticker, w=t.price*t.held.qty/tot;
+    if(t.pending.includes("sell")||t.kind==="at_upper") ideas.push(`🔴 ${nm}: על/מעל הקו העליון (חוזק מכירה ${Math.round(t.s_sell)}). לפי האסטרטגיה: מכירת חצי`);
+    else if(t.kind==="near_sell") ideas.push(`🟠 ${nm}: קרובה לקו העליון (${pct(t.dist_upper)}). מועמדת למכירת חצי`);
+    if(t.pending.some(k=>k==="entry"||k==="add")||t.kind==="near_buy") ideas.push(`🟢 ${nm}: ${t.pending.length?"אושר איתות הוספה":"קרובה לקו התחתון ("+pct(t.dist_lower)+")"}. לפי האסטרטגיה: הוספת רבע מנה, עד שתי מנות`);
+    if(t.flags.some(f=>f[0]==="broken")) ideas.push(`⚠ ${nm}: מגמת הערוץ שלילית. לא כדאי להוסיף בקו התחתון בלי לבדוק`);
+    if(w>0.25) ideas.push(`⚖ ${nm}: ${Math.round(w*100)}% משווי התיק. ריכוז גבוה מגדיל את הסיכון`);
+  });
+  if(notes.length) ideas.unshift(...[...new Set(notes)].slice(0,4).map(x=>"📌 "+x));
+  h+='<div class="mut" style="margin:14px 4px 8px">איך אפשר לשפר לפי האסטרטגיה</div>'+(ideas.length?`<div class="card">${ideas.slice(0,12).map(x=>`<div style="margin:6px 0">${esc(x)}</div>`).join("")}</div>`:'<div class="msg">אין כרגע המלצות מהאסטרטגיה</div>');
+  h+='<div class="note">ההערות מבוססות על הערוץ הנוכחי ועל הידיעה בדיעבד, ואינן ייעוץ השקעות. בבדיקות היסטוריות האסטרטגיה היא בעיקר כלי לשליטה בסיכון ולא הוכיחה יתרון על קנייה והחזקה. הסכומים כוללים רק עסקאות שנרשמו.</div>';
+  return h;
+}
 const normT = (t,m) => { t=t.trim().toUpperCase().replace(/\s+/g,""); return (m==="il"&&!t.includes(".")&&!t.startsWith("^"))?t+".TA":t; };
 function pollWatch(m,t){
   clearInterval(polls[m]); let n=0;
@@ -304,9 +417,9 @@ async function load(m, force){
   if(!force && data[m]) return;
   if(cfg.token){
     try{
-      const [dash, lv, stt, wlj, wd, op, nw, mk, tl, od] = await Promise.all(["dashboard_data.json","intraday_levels.json","intraday_state.json","watchlist.json","watchlist_data.json","opportunities.json","news_data.json","market_data.json","trades_log.json","orders.json"].map(f=>gh(repo,f)));
+      const [dash, lv, stt, wlj, wd, op, nw, mk, tl, od, ph] = await Promise.all(["dashboard_data.json","intraday_levels.json","intraday_state.json","watchlist.json","watchlist_data.json","opportunities.json","news_data.json","market_data.json","trades_log.json","orders.json","portfolio_history.json"].map(f=>gh(repo,f)));
       if(!dash && !wlj && !wd && !op) throw new Error("אין עדיין נתונים בריפו. הרץ daily-alert פעם אחת");
-      data[m] = {dash, lv, stt, wl:(wlj&&wlj.tickers)||[], wd, op, nw, mk, tl, od:Array.isArray(od)?od:[], at:Date.now()}; errs[m]=""; LS.set(key, data[m]); return;
+      data[m] = {dash, lv, stt, wl:(wlj&&wlj.tickers)||[], wd, op, nw, mk, tl, od:Array.isArray(od)?od:[], ph:Array.isArray(ph)?ph:[], at:Date.now()}; errs[m]=""; LS.set(key, data[m]); return;
     }catch(e){ errs[m]=e.message; }
   } else errs[m]="אין טוקן";
   const c = LS.get(key,null); if(c) data[m]=c;
@@ -425,11 +538,12 @@ function render(){
   const d=data[cur], e=errs[cur], main=$("#main");
   if(!d){ main.innerHTML=`<div class="msg">${esc(e||"אין נתונים")}<br><br><button id="open">הגדרות חיבור</button></div>`; $("#open")&&($("#open").onclick=openCfg); return; }
   const keep=($("#w_in")||{}).value||"";
-  const subs=`<div class="sub"><button data-s="pf" class="${sub==="pf"?"on":""}">התיק שלי</button><button data-s="wl" class="${sub==="wl"?"on":""}">מעקב (${(d.wl||[]).length})</button><button data-s="op" class="${sub==="op"?"on":""}">קרובות לקו</button><button data-s="mk" class="${sub==="mk"?"on":""}">מדדים</button><button data-s="od" class="${sub==="od"?"on":""}">פקודות (${(d.od||[]).length})</button></div>`;
+  const subs=`<div class="sub"><button data-s="pf" class="${sub==="pf"?"on":""}">התיק שלי</button><button data-s="wl" class="${sub==="wl"?"on":""}">מעקב (${(d.wl||[]).length})</button><button data-s="op" class="${sub==="op"?"on":""}">קרובות לקו</button><button data-s="mk" class="${sub==="mk"?"on":""}">מדדים</button><button data-s="od" class="${sub==="od"?"on":""}">פקודות (${(d.od||[]).length})</button><button data-s="sm" class="${sub==="sm"?"on":""}">סיכום</button></div>`;
   const stamp=(d.dash&&d.dash.updated)||(d.wd&&d.wd.updated)||"";
   $("#upd").textContent = stamp?"עודכן "+stamp.slice(5,16).replace("T"," "):"";
   const warn=e?`<div class="card mut">⚠ ${esc(e)} (מוצגים נתונים שמורים)</div>`:"";
   if(sub==="wl"){ main.innerHTML = warn+subs+`<div id="wv">${watchView(cur,d)}</div>`; const i=$("#w_in"); if(i&&keep) i.value=keep; drawOpen(); return; }
+  if(sub==="sm"){ main.innerHTML = warn+subs+`<div id="smv">${sumView(cur,d)}</div>`; const sl=$("#s_mon"); if(sl) sl.onchange=()=>{ smon[cur]=sl.value; render(); }; return; }
   if(sub==="od"){ main.innerHTML = warn+subs+`<div id="odv">${odView(cur,d)}</div>`; return; }
   if(sub==="mk"){ main.innerHTML = warn+subs+`<div id="mv">${mktView(d)}</div>`; drawOpen(); return; }
   if(sub==="op"){ main.innerHTML = warn+subs+`<div id="ov">${oppView(cur,d)}</div>`; return; }
@@ -457,6 +571,7 @@ document.addEventListener("click",ev=>{
   if(ev.target.closest("#w_add")){ addWatch(cur); return; }
   if(ev.target.closest("#t_open")){ openTrade(); return; }
   if(ev.target.closest("#o_new")){ openOrder(""); return; }
+  if(ev.target.closest("#o_img")){ const f=$("#o_file"); f.value=""; f.onchange=()=>onOrdersFile(f.files[0]); f.click(); return; }
   const oa=ev.target.closest("[data-ord]"); if(oa){ openOrder(oa.dataset.ord); return; }
   const od_=ev.target.closest("[data-odel]"); if(od_){ delOrder(cur,od_.dataset.odel); return; }
   if(ev.target.closest("#t_undo")){ undoTrade(cur); return; }
@@ -467,9 +582,9 @@ document.addEventListener("click",ev=>{
   const it=ev.target.closest(".item"); if(it){ it.classList.toggle("open"); if(it.classList.contains("open")) drawOpen(); }
 });
 document.addEventListener("keydown",ev=>{ if(ev.key==="Enter"&&ev.target.id==="w_in") addWatch(cur); });
-function openCfg(){ $("#f_owner").value=cfg.owner; $("#f_il").value=cfg.il; $("#f_us").value=cfg.us; $("#f_tok").value=cfg.token; $("#dlg").showModal(); }
+function openCfg(){ $("#f_owner").value=cfg.owner; $("#f_il").value=cfg.il; $("#f_us").value=cfg.us; $("#f_tok").value=cfg.token; $("#f_ak").value=cfg.akey||""; $("#dlg").showModal(); }
 $("#st").onclick=openCfg; $("#cancel").onclick=()=>$("#dlg").close();
-$("#frm").onsubmit=()=>{ Object.assign(cfg,{owner:$("#f_owner").value.trim(),il:$("#f_il").value.trim(),us:$("#f_us").value.trim(),token:$("#f_tok").value.trim()}); LS.set("cfg",cfg); data={}; errs={}; load(cur,true).then(render); };
+$("#frm").onsubmit=()=>{ Object.assign(cfg,{owner:$("#f_owner").value.trim(),il:$("#f_il").value.trim(),us:$("#f_us").value.trim(),token:$("#f_tok").value.trim(),akey:$("#f_ak").value.trim()}); LS.set("cfg",cfg); data={}; errs={}; load(cur,true).then(render); };
 $("#rf").onclick=()=>{ $("#main").innerHTML='<div class="msg">טוען…</div>'; load(cur,true).then(render); };
 (async()=>{ if(!cfg.token){ render(); openCfg(); } else { await load(cur); render(); }
   if("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(()=>{}); })();
