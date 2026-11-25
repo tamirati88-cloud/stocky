@@ -105,7 +105,7 @@ input{width:100%;font:inherit;padding:8px;border-radius:8px;border:1px solid var
 </form></dialog>
 <script>
 "use strict";
-const VER="v17";
+const VER="v18";
 const LS = {get(k,d){try{const v=localStorage.getItem(k);return v===null?d:JSON.parse(v)}catch(e){return d}},
             set(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}};
 const cfg = Object.assign({owner:"tamirati88-cloud",il:"StockIL",us:"stockyAlerts",token:"",akey:""}, LS.get("cfg",{}));
@@ -614,6 +614,11 @@ function histView(m,d){
   if(!cards.length) return nlog?`<div class="msg">יש ${nlog} עסקאות ביומן, אבל הניתוח עוד לא חושב.<br>הרץ את trade-review ב-Actions, או חכה לעדכון הבא.</div>`:'<div class="msg">אין עדיין עסקאות. רשום עסקה בטאב "התיק שלי" והיא תופיע כאן עם ניתוח.</div>';
   const cl=cards.filter(c=>c.status==="closed"&&c.pnl!=null), tot=cl.reduce((a,c)=>a+c.pnl,0), w=cl.filter(c=>c.pnl>0).length, opn=cards.filter(c=>c.status==="open").length, na=cards.filter(c=>c.verdict==="na").length;
   return `<div class="card sum"><div class="mut">ממומש<b class="${sgn(tot)}"><bdi>${tot>=0?"+":""}${fmt(tot,um)}</bdi></b></div><div class="mut">עסקאות רווחיות<b>${w}/${cl.length}</b></div><div class="mut">פתוחות<b>${opn}</b></div></div>`+
+   (()=>{ const xs=cards.filter(c=>c.status==="closed"&&c.exit&&c.exit.ch&&c.exit.ch.z!=null), nb=xs.filter(c=>c.exit.ch.z<0).length, nd=xs.filter(c=>c.exit.ch.z<=-1.5).length,
+      es=cards.filter(c=>c.entry&&c.entry.ch&&c.entry.ch.z!=null), ne=es.filter(c=>c.entry.ch.z>-1.35).length, out=[];
+     if(xs.length>=3&&nb/xs.length>=0.5) out.push(`${nb} מתוך ${xs.length} המכירות נעשו מתחת לקו האמצעי של הערוץ${nd?` (${nd} מהן ממש בקו התחתון או מתחתיו)`:""}. לפי האסטרטגיה זה האזור שבו קונים או מחזיקים, והמכירה היא בקו העליון. אם המכירות היו החלטה מכוונת (למשל הורדת סיכון), זה לגיטימי, אבל הן רחוקות מהכלל.`);
+     if(es.length>=3&&ne/es.length>=0.5) out.push(`${ne} מתוך ${es.length} הכניסות נעשו לפני שהמחיר הגיע לקו התחתון, ולא בו.`);
+     return out.length?`<div class="card"><b>דפוס בעסקאות</b>${out.map(t=>`<div style="margin:6px 0;font-size:14px">• ${esc(t)}</div>`).join("")}</div>`:""; })()+
    (cl.some(c=>c.entry&&c.entry.est)?'<div class="note" style="margin:0 4px 8px">חלק ממחירי הכניסה הם הערכה מהתיק (נגזרו מאחוזי הרווח בצילום), ולכן גם הרווח. אפשר לתקן בכל כרטיס עם ✏.</div>':"")+
    (na?`<div class="note" style="margin:0 4px 8px">${na} מכירות בלי מחיר כניסה לא נספרות ברווח.</div>`:"")+
    cards.map(c=>histCard(c,u0,um)).join("")+`<div class="note">עדכון אחרון של הניתוח: ${esc(((rv&&rv.updated)||"").slice(0,16).replace("T"," "))}</div>`;
