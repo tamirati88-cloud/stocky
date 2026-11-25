@@ -88,6 +88,14 @@ input{width:100%;font:inherit;padding:8px;border-radius:8px;border:1px solid var
   <div class="mut" id="o_msg" style="margin:8px 0"></div>
   <div class="row"><button class="on" type="submit" id="o_ok">שמירה</button><button type="button" id="o_cancel">סגירה</button></div>
 </form></dialog>
+<dialog id="hdlg"><form id="hfrm">
+  <b>מחיר ותאריך כניסה</b>
+  <div class="mut" id="h_t" style="margin:6px 0 10px"></div>
+  <label><span id="h_pl">מחיר כניסה</span><input id="h_p" inputmode="decimal" autocomplete="off"></label>
+  <label>תאריך הקנייה (לא חובה, מאפשר לנתח איפה נכנסת בערוץ)<input id="h_d" type="date"></label>
+  <div class="mut" id="h_msg" style="margin:8px 0"></div>
+  <div class="row"><button class="on" type="submit" id="h_ok">שמירה</button><button type="button" id="h_cancel">סגירה</button></div>
+</form></dialog>
 <dialog id="idlg"><form id="ifrm">
   <b>פקודות שזוהו בתמונה</b>
   <p class="mut">בדוק כל שורה לפני השמירה: הזיהוי אוטומטי ועלול לטעות. אפשר לתקן סימול, מחיר וכמות, ולבטל סימון של שורה.</p>
@@ -97,7 +105,7 @@ input{width:100%;font:inherit;padding:8px;border-radius:8px;border:1px solid var
 </form></dialog>
 <script>
 "use strict";
-const VER="v16";
+const VER="v17";
 const LS = {get(k,d){try{const v=localStorage.getItem(k);return v===null?d:JSON.parse(v)}catch(e){return d}},
             set(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}};
 const cfg = Object.assign({owner:"tamirati88-cloud",il:"StockIL",us:"stockyAlerts",token:"",akey:""}, LS.get("cfg",{}));
@@ -438,9 +446,9 @@ async function load(m, force){
   if(!force && data[m]) return;
   if(cfg.token){
     try{
-      const [dash, lv, stt, wlj, wd, op, nw, mk, tl, od, ph] = await Promise.all(["dashboard_data.json","intraday_levels.json","intraday_state.json","watchlist.json","watchlist_data.json","opportunities.json","news_data.json","market_data.json","trades_log.json","orders.json","portfolio_history.json"].map(f=>gh(repo,f)));
+      const [dash, lv, stt, wlj, wd, op, nw, mk, tl, od, ph, rv] = await Promise.all(["dashboard_data.json","intraday_levels.json","intraday_state.json","watchlist.json","watchlist_data.json","opportunities.json","news_data.json","market_data.json","trades_log.json","orders.json","portfolio_history.json","trade_review.json"].map(f=>gh(repo,f)));
       if(!dash && !wlj && !wd && !op) throw new Error("אין עדיין נתונים בריפו. הרץ daily-alert פעם אחת");
-      data[m] = {dash, lv, stt, wl:(wlj&&wlj.tickers)||[], wd, op, nw, mk, tl, od:Array.isArray(od)?od:[], ph:Array.isArray(ph)?ph:[], at:Date.now()}; errs[m]=""; LS.set(key, data[m]); return;
+      data[m] = {dash, lv, stt, wl:(wlj&&wlj.tickers)||[], wd, op, nw, mk, tl, od:Array.isArray(od)?od:[], ph:Array.isArray(ph)?ph:[], rv, at:Date.now()}; errs[m]=""; LS.set(key, data[m]); return;
     }catch(e){ errs[m]=e.message; }
   } else errs[m]="אין טוקן";
   const c = LS.get(key,null); if(c) data[m]=c;
@@ -460,7 +468,7 @@ function chart(cv, s, lv, u){
   const css=getComputedStyle(document.body), col=n=>css.getPropertyValue(n).trim();
   const n=s.p.length, K=1.5, sd=s.up.map((u_,i)=>Math.log(u_/s.mid[i])/K);
   const band=(m)=>s.mid.map((v,i)=>v*Math.exp(m*sd[i])), u2=band(2), l2=band(-2), u1=band(1), l1=band(-1);
-  const all=[].concat(s.p,u2,l2).filter(v=>v!=null&&v>0);
+  const all=[].concat(s.p,u2,l2,(s.marks||[]).map(m=>m.p)).filter(v=>v!=null&&v>0);
   let lo=Math.log(Math.min(...all)), hi=Math.log(Math.max(...all)); const pad=(hi-lo)*0.05; lo-=pad; hi+=pad;
   const L=8,R=58,T=8,B=20, X=i=>L+(w-L-R)*i/(n-1), Y=v=>T+(h-T-B)*(1-(Math.log(v)-lo)/(hi-lo));
   g.font="11px system-ui"; g.textBaseline="middle";
@@ -476,6 +484,9 @@ function chart(cv, s, lv, u){
   g.textAlign="left";
   [[s.up[n-1],col("--bad")],[s.mid[n-1],col("--mut")],[s.lo[n-1],col("--ok")]].forEach(([v,c])=>{g.fillStyle=c;g.fillText(fmt(v,u).replace(" אג׳","")+"",w-R+4,Y(v));});
   g.fillStyle=col("--mut"); g.textAlign="center"; g.fillText(s.d[0],L+30,h-8); g.fillText(s.d[n-1],w-R-30,h-8);
+  (s.marks||[]).forEach(m=>{ const x=X(m.i), y=Y(m.p), up=m.side==="buy", c=up?col("--ok"):col("--bad"); g.fillStyle=c; g.strokeStyle=col("--bg"); g.lineWidth=1.5; g.beginPath();
+    if(up){ g.moveTo(x,y-1); g.lineTo(x-7,y+11); g.lineTo(x+7,y+11); } else { g.moveTo(x,y+1); g.lineTo(x-7,y-11); g.lineTo(x+7,y-11); } g.closePath(); g.fill(); g.stroke();
+    g.textAlign=x>w-R-60?"right":"left"; g.fillText(up?"קניתי":"מכרתי",x+(x>w-R-60?-10:10),up?y+8:y-8); });
   g.textAlign="left"; g.fillStyle="#d4a72c"; g.fillText("±1σ",L+2,T+6); g.fillStyle="#5b7cfa"; g.fillText("±2σ",L+34,T+6);
 }
 const ofil={};
@@ -575,6 +586,68 @@ function oppView(m,d){
     `<div class="mut" style="margin:14px 4px 8px">🔴 קרובות ליציאה (קו עליון) · ${sell.length}</div>`+(sell.length?sell.map(t=>item(t,u,null,newsFor(d,t.ticker),false,sl(t))).join(""):'<div class="msg">אין כרגע</div>')+
     '<div class="note">הרשימה מבוססת על הסריקה השבועית והבדיקה היומית. אין זו המלצה לקנות או למכור.</div>';
 }
+const ltr=t=>esc(t).replace(/(z=[+\-−]?\d+(?:\.\d+)?|[+\-−]\d+(?:\.\d+)?%)/g,"<bdi>$1</bdi>");
+const hmon=x=>x?x.slice(8,10)+"/"+x.slice(5,7):"";
+const HV={good:["✅ רווח, יציאה בקו העליון","ok"],ok:["✅ רווח, יציאה לפני הקו העליון","warn"],bad:["🔴 הפסד","bad"],na:["⚪ חסר מחיר כניסה",""],open:["🔵 פתוחה",""]};
+function histCard(c,u0,um){
+  const e=c.entry||{}, x=c.exit, now=c.now, ze=e.ch&&e.ch.z, zx=x&&x.ch&&x.ch.z, zn=now&&now.ch&&now.ch.z, sg2=v=>v==null?"–":(v>=0?"+":"")+v.toFixed(1);
+  const [vt,vc]=HV[c.verdict]||["",""], chips=[`<span class="chip ${vc}">${vt}</span>`];
+  if(e.est&&c.status==="closed") chips.push('<span class="chip warn">מחיר כניסה משוער</span>');
+  if(e.date_est) chips.push('<span class="chip warn">תאריך משוער</span>');
+  if(ze!=null||zx!=null||zn!=null) chips.push(`<span class="chip">z: ${sg2(ze)}${x?" ← "+sg2(zx):now?" ← "+sg2(zn):""}</span>`);
+  if(e.ch&&e.ch.slope!=null){ const t=e.ch.slope>0.05?"pos":e.ch.slope<-0.05?"neg":"side"; chips.push(`<span class="chip ${t==="neg"?"bad":t==="pos"?"ok":""}">${TR[t][0]} מגמה בכניסה ${TR[t][1]}</span>`); }
+  const dates=c.status==="closed"?(e.date?hmon(e.date)+" ← ":"")+hmon(x.date):"מ-"+hmon(e.date)+" · פתוחה"+(c.days!=null?" "+c.days+" ימים":"");
+  const line=c.status==="closed"?`כניסה ${fmt(e.price,u0)} ← יציאה ${fmt(x.price,u0)}`:`כניסה ${fmt(e.price,u0)} · עכשיו ${fmt(now&&now.price,u0)}`;
+  const pnl=c.pnl==null?"":`<b class="${sgn(c.pnl)}"><bdi>${c.pnl>=0?"+":""}${fmt(c.pnl,um)}</bdi></b>`;
+  return `<div class="card item" data-c="${esc(c.id)}"><div class="top"><span class="nm">${esc(c.name||c.ticker)}</span><span>${pnl}</span></div>
+   <div class="top mut"><span>${c.qty} יח׳ · ${dates}</span><span class="${sgn(c.pnl_pct)}">${c.pnl_pct==null?"":pct(c.pnl_pct)}</span></div>
+   <div class="top mut"><span>${line}</span></div><div>${chips.join("")}</div>
+   <div class="det">${c.series?'<canvas></canvas>':""}
+    ${(c.notes||[]).map(t=>`<div class="mut" style="margin:6px 0">• ${ltr(t)}</div>`).join("")}
+    <div style="margin:12px 0 4px"><b>מה אפשר לשפר (לפי ערוץ הרגרסיה)</b></div>
+    ${(c.improve||[]).map(t=>`<div style="margin:6px 0;font-size:14px">• ${ltr(t)}</div>`).join("")}
+    ${c.status==="closed"&&(!e.date||e.est||c.unknown_entry)?`<div class="row" style="margin-top:10px"><button data-hedit="${esc(c.id)}">✏ הזנת מחיר ותאריך כניסה</button></div>`:""}
+    <div class="note">הניתוח מחושב לפי ערוץ לוג-מחיר של 252 ימים ו-±1.5σ, כפי שהיה בתאריך העסקה. אין כאן הוכחה שהאסטרטגיה עדיפה על החזקה פסיבית. לא ייעוץ השקעות.</div></div></div>`;
+}
+function histView(m,d){
+  const rv=d.rv, u0=pfUnit(m), um=u0==="agorot"?"ils":u0, cards=(rv&&rv.cards)||[], nlog=Array.isArray(d.tl)?d.tl.length:0;
+  if(!cards.length) return nlog?`<div class="msg">יש ${nlog} עסקאות ביומן, אבל הניתוח עוד לא חושב.<br>הרץ את trade-review ב-Actions, או חכה לעדכון הבא.</div>`:'<div class="msg">אין עדיין עסקאות. רשום עסקה בטאב "התיק שלי" והיא תופיע כאן עם ניתוח.</div>';
+  const cl=cards.filter(c=>c.status==="closed"&&c.pnl!=null), tot=cl.reduce((a,c)=>a+c.pnl,0), w=cl.filter(c=>c.pnl>0).length, opn=cards.filter(c=>c.status==="open").length, na=cards.filter(c=>c.verdict==="na").length;
+  return `<div class="card sum"><div class="mut">ממומש<b class="${sgn(tot)}"><bdi>${tot>=0?"+":""}${fmt(tot,um)}</bdi></b></div><div class="mut">עסקאות רווחיות<b>${w}/${cl.length}</b></div><div class="mut">פתוחות<b>${opn}</b></div></div>`+
+   (cl.some(c=>c.entry&&c.entry.est)?'<div class="note" style="margin:0 4px 8px">חלק ממחירי הכניסה הם הערכה מהתיק (נגזרו מאחוזי הרווח בצילום), ולכן גם הרווח. אפשר לתקן בכל כרטיס עם ✏.</div>':"")+
+   (na?`<div class="note" style="margin:0 4px 8px">${na} מכירות בלי מחיר כניסה לא נספרות ברווח.</div>`:"")+
+   cards.map(c=>histCard(c,u0,um)).join("")+`<div class="note">עדכון אחרון של הניתוח: ${esc(((rv&&rv.updated)||"").slice(0,16).replace("T"," "))}</div>`;
+}
+function drawHist(){
+  document.querySelectorAll("#hv .item.open").forEach(it=>{ const d=data[cur], c=((d&&d.rv&&d.rv.cards)||[]).find(x=>x.id===it.dataset.c), cv=it.querySelector("canvas");
+    if(c&&c.series&&cv) chart(cv,c.series,null,pfUnit(cur)); });
+}
+let hedit=null;
+function openHedit(id){
+  const d=data[cur], c=((d&&d.rv&&d.rv.cards)||[]).find(x=>x.id===id); if(!c) return; hedit=c; const u0=pfUnit(cur);
+  $("#h_t").textContent=(c.name||c.ticker)+" · מכירה ב-"+hmon(c.exit.date); $("#h_pl").textContent="מחיר כניסה ליחידה ב"+(u0==="agorot"?"אגורות":u0==="ils"?"שקלים":"דולרים");
+  $("#h_p").value=c.entry&&c.entry.price?(u0==="agorot"?Math.round(c.entry.price*100*100)/100:c.entry.price):""; $("#h_d").value=(c.entry&&c.entry.date)||""; $("#h_msg").textContent=""; $("#hdlg").showModal();
+}
+$("#h_cancel").onclick=()=>$("#hdlg").close();
+$("#hfrm").onsubmit=async ev=>{
+  ev.preventDefault(); const c=hedit, u0=pfUnit(cur), msg=$("#h_msg"); let p=parseFloat(($("#h_p").value||"").replace(/,/g,"")); const dt=$("#h_d").value;
+  if(!(p>0)){ msg.textContent="הזן מחיר כניסה"; return; } if(u0==="agorot") p=p/100;
+  $("#h_ok").disabled=true; msg.textContent="שומר…";
+  try{
+    for(let i=0;i<3;i++){
+      const L=await readJson(cur,"trades_log.json",[]), log=Array.isArray(L.obj)?L.obj:[]; let n=0;
+      (Array.isArray(c.log_idx)?c.log_idx:[c.log_idx]).forEach(ix=>{ const e=log[ix]; if(!e||e.side!=="sell") return; n++;
+        e.prev=Object.assign({},e.prev||{},{ticker:e.ticker,qty:e.qty,avg:Math.round(p*1e4)/1e4}); e.est=false; delete e.entry_unknown; if(dt) e.entry_date=dt; e.entry_price=p;
+        e.realized=Math.round((e.qty*(e.price-p)-(e.fee||0))*100)/100; });
+      if(!n) throw new Error("העסקה לא נמצאה ביומן");
+      const r=await putJson(cur,"trades_log.json",log,L.sha,"fix entry price (dashboard)");
+      if(r.status===409||r.status===422) continue; if(!r.ok) throw new Error(permMsg(r));
+      try{ await api(cfg[cur],"actions/workflows/trade-review.yml/dispatches",{method:"POST",body:JSON.stringify({ref:"main"})}); }catch(e){}
+      const d=data[cur]; d.tl=log; LS.set("d_"+cur,d); tmsg[cur]="מחיר הכניסה נשמר. הניתוח מתעדכן, בערך דקה."; $("#hdlg").close(); render(); return;
+    }
+    throw new Error("היומן השתנה במקביל. נסה שוב");
+  }catch(e){ msg.textContent=e.message; } finally { $("#h_ok").disabled=false; }
+};
 function drawOpen(){
   document.querySelectorAll(".item.open").forEach(it=>{
     const d=data[cur]; if(!d) return;
@@ -588,11 +661,12 @@ function render(){
   const d=data[cur], e=errs[cur], main=$("#main");
   if(!d){ main.innerHTML=`<div class="msg">${esc(e||"אין נתונים")}<br><br><button id="open">הגדרות חיבור</button></div>`; $("#open")&&($("#open").onclick=openCfg); return; }
   const keep=($("#w_in")||{}).value||"";
-  const subs=`<div class="sub"><button data-s="pf" class="${sub==="pf"?"on":""}">התיק שלי</button><button data-s="wl" class="${sub==="wl"?"on":""}">מעקב (${(d.wl||[]).length})</button><button data-s="op" class="${sub==="op"?"on":""}">קרובות לקו</button><button data-s="mk" class="${sub==="mk"?"on":""}">מדדים</button><button data-s="od" class="${sub==="od"?"on":""}">פקודות (${(d.od||[]).length})</button><button data-s="sm" class="${sub==="sm"?"on":""}">סיכום</button></div>`;
+  const subs=`<div class="sub"><button data-s="pf" class="${sub==="pf"?"on":""}">התיק שלי</button><button data-s="wl" class="${sub==="wl"?"on":""}">מעקב (${(d.wl||[]).length})</button><button data-s="op" class="${sub==="op"?"on":""}">קרובות לקו</button><button data-s="mk" class="${sub==="mk"?"on":""}">מדדים</button><button data-s="od" class="${sub==="od"?"on":""}">פקודות (${(d.od||[]).length})</button><button data-s="hs" class="${sub==="hs"?"on":""}">היסטוריה</button><button data-s="sm" class="${sub==="sm"?"on":""}">סיכום</button></div>`;
   const stamp=(d.dash&&d.dash.updated)||(d.wd&&d.wd.updated)||"";
   $("#upd").textContent = (stamp?"עודכן "+stamp.slice(5,16).replace("T"," ")+" · ":"")+VER;
   const warn=e?`<div class="card mut">⚠ ${esc(e)} (מוצגים נתונים שמורים)</div>`:"";
   if(sub==="wl"){ main.innerHTML = warn+subs+`<div id="wv">${watchView(cur,d)}</div>`; const i=$("#w_in"); if(i&&keep) i.value=keep; drawOpen(); return; }
+  if(sub==="hs"){ main.innerHTML = warn+subs+`<div id="hv">${histView(cur,d)}</div>`; drawHist(); return; }
   if(sub==="sm"){ main.innerHTML = warn+subs+`<div id="smv">${sumView(cur,d)}</div>`; const sl=$("#s_mon"); if(sl) sl.onchange=()=>{ smon[cur]=sl.value; render(); }; return; }
   if(sub==="od"){ main.innerHTML = warn+subs+`<div id="odv">${odView(cur,d)}</div>`; return; }
   if(sub==="mk"){ main.innerHTML = warn+subs+`<div id="mv">${mktView(d)}</div>`; drawOpen(); return; }
@@ -631,11 +705,12 @@ document.addEventListener("click",ev=>{
   const of_=ev.target.closest("[data-oflip]"); if(of_){ flipOrder(cur,of_.dataset.oflip); return; }
   const od_=ev.target.closest("[data-odel]"); if(od_){ delOrder(cur,od_.dataset.odel); return; }
   if(ev.target.closest("#t_undo")){ undoTrade(cur); return; }
+  const he=ev.target.closest("[data-hedit]"); if(he){ openHedit(he.dataset.hedit); return; }
   const rm=ev.target.closest("[data-rm]"); if(rm){
     if(rm.dataset.sure){ removeWatch(cur,rm.dataset.rm); } else { rm.dataset.sure="1"; rm.textContent="לחץ שוב לאישור הסרה"; }
     return; }
   if(ev.target.closest("a,input,button")) return;
-  const it=ev.target.closest(".item"); if(it){ it.classList.toggle("open"); if(it.classList.contains("open")) drawOpen(); }
+  const it=ev.target.closest(".item"); if(it){ it.classList.toggle("open"); if(it.classList.contains("open")){ drawOpen(); drawHist(); } }
 });
 document.addEventListener("keydown",ev=>{ if(ev.key==="Enter"&&ev.target.id==="w_in") addWatch(cur); });
 function openCfg(){ $("#f_owner").value=cfg.owner; $("#f_il").value=cfg.il; $("#f_us").value=cfg.us; $("#f_tok").value=cfg.token; $("#f_ak").value=cfg.akey||""; $("#verl").textContent="גרסת הלוח בדפדפן הזה: "+VER; $("#dlg").showModal(); }
